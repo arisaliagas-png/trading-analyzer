@@ -1,0 +1,405 @@
+/**
+ * tradeTracker.js
+ *
+ * Background monitor that tracks open trades against live Binance prices.
+ * On TP hit  → marks trade SUCCESS.
+ * On SL hit  → marks trade FAILED and fires the AI post-mortem learning loop.
+ *
+ * All persistence is handled by db.js (SQLite).
+ * No direct file I/O here.
+ */
+
+import fetch from 'node-fetch';
+import {
+  getActiveTrades,
+  updateTradeStatus,
+  recordPrice,
+  saveLesson,
+  removeSignalByInstrument,
+  getPriceHistory,
+  markEnteredZone,
+  expireStalePending
+} from './db.js';
+import { analyzeChart } from './aiProvider.js';
+import { trackerLog } from './logger.js';
+import { onTradeClosed } from './riskManager.js';
+
+// ─────────────────────────────────────────────
+// PRICE FETCHER — multi-source
+// Crypto pairs resolve via Binance; traditional instruments (metals, forex,
+// indices) resolve via Twelve Data (if TWELVE_DATA_API_KEY is set) or Pyth.
+// This prevents PENDING setups from stalling forever just because the
+// instrument isn't on Binance (e.g. XAU/USD gold).
+// ─────────────────────────────────────────────
+
+// Map a user-supplied symbol to a canonical source + query symbol.
+function resolveSymbol(sym) {
+  const s = sym.toUpperCase().trim();
+  const clean = s.replace(/[\/\.\-]/g, '').replace(/P$/i, ''); // strip separators; trailing P = perpetual suffix only
+  // Any pair whose cleaned symbol ends in a stablecoin ticker is a crypto
+  // spot/perp — always resolve via Binance. (Covers ALL alts, not just a
+  // hardcoded list, so e.g. HYPEUSDT no longer falls through to traditional.)
+  if (/USDT$|USDC$|BUSD$|FDUSD$/.test(clean)) {
+    return { source: 'binance', query: clean };
+  }
+  // Traditional instruments → Twelve Data / Pyth use slash notation
+  const tradMap = {
+    'XAUUSD': 'XAU/USD', 'XAU/USD': 'XAU/USD', 'GOLD': 'XAU/USD',
+    'XAGUSD': 'XAG/USD', 'XAG/USD': 'XAG/USD', 'SILVER': 'XAG/USD',
+    'EURUSD': 'EUR/USD', 'GBPUSD': 'GBP/USD', 'USDJPY': 'USD/JPY',
+    'AUDUSD': 'AUD/USD', 'NAS100': 'NASDAQ', 'US30': 'DOWJONES', 'SPX': 'SPX'
+  };
+  const canon = tradMap[s] || (s.includes('/') ? s : s.replace(/USD$/, '/USD').replace(/^(\w+)\/USD$/, '$1/USD'));
+  return { source: 'traditional', query: canon };
+}
+
+async function fetchBinance(symbols) {
+  const prices = {};
+  await Promise.all(symbols.map(async (sym) => {
+    const clean = sym.replace(/[\/\.\-]/g, '').replace(/P$/i, ''); // strip separators; trailing P = perpetual suffix only
+    try {
+      const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${clean}`);
+      if (res.ok) {
+        const data = await res.json();
+        prices[sym] = parseFloat(data.price);
+      } else if (res.status === 400) {
+        // Invalid symbol — try Hyperliquid (many alts/perps live there, not Binance)
+        const hl = await fetchHyperliquid([sym]);
+        if (hl[sym] != null) prices[sym] = hl[sym];
+      }
+    } catch { /* ignore per-symbol */ }
+  }));
+  return prices;
+}
+
+// Hyperliquid perpetuals — used as fallback when a symbol isn't on Binance
+// (e.g. HYPEUSDT). API is free, no key required. Uses l2Book (mid from
+// best bid/ask) since allMids uses opaque numeric IDs.
+async function fetchHyperliquid(symbols) {
+  const prices = {};
+  for (const sym of symbols) {
+    const clean = sym.replace(/[\/\.\-]/g, '').replace(/P$/i, '');
+    const coin = clean.slice(0, -4); // HYPEUSDT -> HYPE
+    try {
+      const res = await fetch('https://api.hyperliquid.xyz/info', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ type: 'l2Book', coin })
+      });
+      if (!res.ok) continue;
+      const j = await res.json();
+      const bid = parseFloat(j?.levels?.[0]?.[0]?.px);
+      const ask = parseFloat(j?.levels?.[1]?.[0]?.px);
+      if (bid && ask) prices[sym] = (bid + ask) / 2;
+    } catch { /* ignore */ }
+  }
+  return prices;
+}
+
+async function fetchTraditional(symbols) {
+  const prices = {};
+  const key = process.env.TWELVE_DATA_API_KEY;
+  // Twelve Data path (preferred when key present)
+  if (key) {
+    await Promise.all(symbols.map(async (sym) => {
+      try {
+        const res = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(sym)}&apikey=${key}`);
+        if (res.ok) {
+          const data = await res.json();
+          if (data?.price) prices[sym] = parseFloat(data.price);
+        }
+      } catch { /* ignore */ }
+    }));
+    return prices;
+  }
+  // Pyth fallback (no key) — best-effort; may be blocked in some environments
+  const FEED_IDS = {
+    'XAU/USD': '765d2ba906dbc32ca17cc11f5310a89e9ee1f6420508c63861f2f8ba4ee34bb2'
+  };
+  for (const sym of symbols) {
+    const id = FEED_IDS[sym];
+    if (!id) continue;
+    try {
+      const res = await fetch(`https://hermes.pyth.network/v2/updates/price?ids%5B%5D=${id}`, { headers: { Accept: 'application/json' } });
+      if (res.ok) {
+        const j = await res.json();
+        const p = j?.parsed?.[0]?.price;
+        if (p) prices[sym] = parseInt(p.price) / Math.pow(10, p.expo);
+      }
+    } catch { /* ignore */ }
+  }
+  return prices;
+}
+
+async function fetchPrices(symbols) {
+  if (!symbols.length) return {};
+  const resolved = symbols.map(s => ({ original: s, ...resolveSymbol(s) }));
+  const binanceSyms = resolved.filter(r => r.source === 'binance').map(r => r.query);
+  const tradSymsRaw = resolved.filter(r => r.source === 'traditional').map(r => r.query);
+
+  const [binancePrices, tradPrices] = await Promise.all([
+    binanceSyms.length ? fetchBinance(binanceSyms) : Promise.resolve({}),
+    tradSymsRaw.length ? fetchTraditional([...new Set(tradSymsRaw)]) : Promise.resolve({})
+  ]);
+
+  // Map binance + traditional results back to original user symbols
+  const result = {};
+  const binanceQueryToOriginal = {};
+  for (const r of resolved.filter(r => r.source === 'binance')) {
+    binanceQueryToOriginal[r.query] = r.original;
+  }
+  for (const [q, price] of Object.entries(binancePrices)) {
+    const orig = binanceQueryToOriginal[q] || q;
+    result[orig] = price;
+  }
+  const tradQueryToOriginal = {};
+  for (const r of resolved.filter(r => r.source === 'traditional')) {
+    tradQueryToOriginal[r.query] = r.original;
+  }
+  for (const [q, price] of Object.entries(tradPrices)) {
+    const orig = tradQueryToOriginal[q];
+    if (orig) result[orig] = price;
+  }
+  return result;
+}
+
+
+// ─────────────────────────────────────────────
+// MAIN MONITOR LOOP
+// ─────────────────────────────────────────────
+export async function monitorTrades() {
+  // Expire stale PENDING setups that never entered their zone (72h cutoff)
+  try { expireStalePending(); } catch (e) { trackerLog.error({ err: e.message }, 'expireStalePending error'); }
+
+  const activeTrades = getActiveTrades(); // reads from SQLite
+  if (!activeTrades.length) return;
+
+  const uniqueSymbols = [...new Set(activeTrades.map(t => t.instrument))];
+  const prices = await fetchPrices(uniqueSymbols);
+
+  for (const trade of activeTrades) {
+    const currentPrice = prices[trade.instrument];
+
+    // Record price sample if we have one (pruned to last 50). We do NOT skip
+    // the trade when price is missing — otherwise its history stays empty and
+    // the PENDING→ACTIVE latch can never fire.
+    if (currentPrice) recordPrice(trade.id, currentPrice);
+
+    const isLong = trade.direction === 'LONG';
+
+    if (trade.status === 'PENDING') {
+      // Activate when price enters the entry zone — either right now OR at any
+      // point in recorded history. Latches entered_zone=1 so a restart or an
+      // empty history can never leave the trade stuck in PENDING again.
+      let enteredZone = currentPrice && (isLong
+        ? (currentPrice <= trade.entryHigh && currentPrice >= trade.entryLow)
+        : (currentPrice >= trade.entryLow  && currentPrice <= trade.entryHigh));
+
+      if (!enteredZone) {
+        const history = getPriceHistory(trade.id);
+        enteredZone = history.some(h => isLong
+          ? (h.price <= trade.entryHigh && h.price >= trade.entryLow)
+          : (h.price >= trade.entryLow  && h.price <= trade.entryHigh));
+      }
+
+      if (enteredZone) {
+        markEnteredZone(trade.id, currentPrice);
+        trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, 'Trade now ACTIVE');
+      }
+
+    } else if (trade.status === 'ACTIVE') {
+      // Wick-aware hit detection: a candle wick can touch the level without the
+      // close reaching it. We approximate by allowing a small tolerance band
+      // around TP1/SL — if price came within WICK_TOLERANCE% of the level, treat
+      // it as a touch (prevents missed SL/TP on wicked candles).
+      const WICK_TOL = 0.0015; // 0.15%
+      const tp1Band = trade.tp1 * WICK_TOL;
+      const slBand  = trade.sl * WICK_TOL;
+      const hitTp1 = isLong ? (currentPrice >= trade.tp1 - tp1Band) : (currentPrice <= trade.tp1 + tp1Band);
+      const hitSl  = isLong ? (currentPrice <= trade.sl + slBand)   : (currentPrice >= trade.sl - slBand);
+
+      if (hitTp1) {
+        updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
+        removeSignalByInstrument(trade.instrument);
+        onTradeClosed('SUCCESS');
+        trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '🎯 Trade hit TAKE PROFIT');
+
+        // Win review: if the realized R fell short of the planned R by a
+        // meaningful margin, learn why we left R on the table.
+        triggerWinReview(trade, currentPrice).catch(e =>
+          trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review failed')
+        );
+
+      } else if (hitSl) {
+        updateTradeStatus(trade.id, 'FAILED', currentPrice, trade.entry_price);
+        removeSignalByInstrument(trade.instrument);
+        onTradeClosed('FAILED');
+        trackerLog.warn({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '❌ Trade hit STOP LOSS');
+
+        // Fire post-mortem asynchronously (don't block monitor loop)
+        triggerPostMortem(trade).catch(e =>
+          trackerLog.error({ tradeId: trade.id, err: e.message }, 'Post-mortem failed')
+        );
+      }
+    }
+  }
+}
+
+// ─────────────────────────────────────────────
+// AI POST-MORTEM — Learning Loop
+// ─────────────────────────────────────────────
+async function triggerPostMortem(trade) {
+  trackerLog.info({ tradeId: trade.id, symbol: trade.instrument }, 'Running AI post-mortem');
+
+  const prompt = `
+[POST-MORTEM ANALYSIS REQUEST]
+A trade setup has failed (hit Stop Loss). Analyze the failure to extract actionable lessons.
+
+TRADE METRICS:
+- Instrument: ${trade.instrument}
+- Direction: ${trade.direction}
+- Entry Zone: $${trade.entryLow} - $${trade.entryHigh} (Ideal: $${trade.entryPrice})
+- Stop Loss: $${trade.sl}
+- Take Profit 1: $${trade.tp1}
+- Indicator Snapshot at execution:
+${JSON.stringify(trade.indicatorSnapshot || [], null, 2)}
+
+- AI Reason at execution:
+${trade.reasoning}
+
+TASK:
+Identify what went wrong. Did momentum indicators diverge? Was CVD negative?
+Was there news pressure? Was the regime misidentified?
+Produce a concise, actionable trading lesson (1-2 sentences) to prevent this mistake.
+
+Return ONLY valid JSON (no markdown, no preamble):
+{
+  "failureReason": "Short explanation of what caused the stop loss hit",
+  "lesson": "Actionable rule for the engine (e.g., 'Do not enter LONG when 4H CVD is strictly declining')"
+}
+`;
+
+  const response = await analyzeChart(
+    null, null,
+    trade.instrument,
+    trade.timeframe,
+    'POST_MORTEM_OVERRIDE',
+    null,
+    prompt,
+    null
+  );
+
+  // response is already a validated object (Zod checked in aiProvider)
+  const analysis = (typeof response === 'object' && response !== null) ? response : {};
+
+  if (!analysis.failureReason || !analysis.lesson) {
+    throw new Error('Post-mortem response missing required fields.');
+  }
+
+  // Persist lesson to SQLite
+  saveLesson(trade, analysis);
+  trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, lesson: analysis.lesson }, 'Lesson saved');
+}
+
+// ─────────────────────────────────────────────
+// WIN REVIEW — learn from SUCCESS that under-delivered R
+// If a winning trade closed with materially less R than its plan promised,
+// ask the AI why we left R on the table and store it as a lesson.
+// ─────────────────────────────────────────────
+async function triggerWinReview(trade, closePrice) {
+  try {
+    const entry = trade.entryPrice ?? trade.entry?.price;
+    const sl    = trade.sl;
+    if (entry == null || sl == null) return;
+
+    const risk = Math.abs(entry - sl);
+    if (risk === 0) return;
+
+    // Realized R from the actual close price
+    const realizedR = (trade.direction === 'SHORT')
+      ? (entry - closePrice) / risk
+      : (closePrice - entry) / risk;
+
+    // Planned/theoretical R (use tp2 if present, else tp1)
+    const plannedTarget = trade.tp2 ?? trade.tp1;
+    const plannedR = (trade.direction === 'SHORT')
+      ? (entry - plannedTarget) / risk
+      : (plannedTarget - entry) / risk;
+
+    // Only review when we left a meaningful amount of R on the table
+    const shortfall = plannedR - realizedR;
+    if (shortfall < 0.3) {
+      trackerLog.info({ tradeId: trade.id, realizedR: realizedR.toFixed(2), plannedR: plannedR.toFixed(2) }, 'Win review skipped — R capture acceptable');
+      return;
+    }
+
+    trackerLog.info({ tradeId: trade.id, symbol: trade.instrument }, 'Running AI win review (under-delivered R)');
+
+    const prompt = `
+[WIN REVIEW REQUEST]
+A trade setup WON (hit Take Profit) but captured less reward than planned.
+
+TRADE METRICS:
+- Instrument: ${trade.instrument}
+- Direction: ${trade.direction}
+- Entry: $${entry}
+- Stop Loss: $${sl}
+- Planned Target (TP2/TP1): $${plannedTarget}
+- Realized Close Price: $${closePrice}
+- Realized R: ${realizedR.toFixed(2)}R
+- Planned R: ${plannedR.toFixed(2)}R
+- R shortfall (left on table): ${shortfall.toFixed(2)}R
+- Indicator Snapshot at execution:
+${JSON.stringify(trade.indicatorSnapshot || [], null, 2)}
+
+- AI Reason at execution:
+${trade.reasoning}
+
+TASK:
+Explain WHY the trade captured less R than planned (e.g. early exit, trailed stop too tight,
+price reversed before TP2, news scare, weak momentum). Then produce ONE actionable rule
+to improve R-capture next time — without becoming reckless (still respect invalidation).
+
+Return ONLY valid JSON (no markdown, no preamble):
+{
+  "missedReason": "Short explanation of why realized R < planned R",
+  "lesson": "Actionable rule for the engine (e.g., 'Let TP2 run unless MTF flips bearish; only trail SL to breakeven after TP1, not beyond')"
+}
+`;
+
+    const response = await analyzeChart(
+      null, null,
+      trade.instrument,
+      trade.timeframe,
+      'WIN_REVIEW_OVERRIDE',
+      null,
+      prompt,
+      null
+    );
+
+    const analysis = (typeof response === 'object' && response !== null) ? response : {};
+    if (!analysis.missedReason || !analysis.lesson) {
+      throw new Error('Win review response missing required fields.');
+    }
+
+    saveLesson(trade, { failure_reason: `Under-delivered R (${realizedR.toFixed(2)}R vs ${plannedR.toFixed(2)}R planned)`, lesson: analysis.lesson });
+    trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, lesson: analysis.lesson }, 'Win-review lesson saved');
+  } catch (e) {
+    trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review error');
+  }
+}
+
+// ─────────────────────────────────────────────
+// PUBLIC: register a new trade setup
+// ─────────────────────────────────────────────
+export { registerTrade as registerTradeSetup } from './db.js';
+
+// ─────────────────────────────────────────────
+// START BACKGROUND MONITOR (every 30s)
+// ─────────────────────────────────────────────
+export function startTracker() {
+  trackerLog.info('Starting Live Trade Monitor (5s interval)');
+  setInterval(() => {
+    monitorTrades().catch(e => trackerLog.error({ err: e.message }, 'monitorTrades error'));
+  }, 5000);
+}

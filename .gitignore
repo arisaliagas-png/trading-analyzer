@@ -1,0 +1,39 @@
+# Secrets — NEVER commit
+.env
+.env.*
+!.env.example
+
+# Dependencies
+node_modules/
+backend/node_modules/
+frontend/node_modules/
+
+# Build output
+frontend/dist/
+dist/
+
+# Databases (local runtime data)
+*.db
+*.sqlite
+backend/*.db
+backend/data/
+
+# Logs
+*.log
+npm-debug.log*
+
+# OS
+.DS_Store
+Thumbs.db
+
+# Temp / recovery artifacts
+replace_env.txt
+recover/
+*recover*/
+
+# Old recovered duplicate subfolder (superseded by backend/ + frontend/ above)
+trading-analyzer/
+
+# Editor
+.vscode/
+.idea/
