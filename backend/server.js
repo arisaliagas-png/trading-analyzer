@@ -54,7 +54,8 @@ const DEFAULT_ORIGINS = [
   'http://localhost:3000',
   'http://127.0.0.1:5000',
   'http://127.0.0.1:5173',
-  'http://127.0.0.1:3000'
+  'http://127.0.0.1:3000',
+  'https://trading-analyzer-affqwq.fly.dev'
 ];
 const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
   .split(',').map(s => s.trim()).filter(Boolean)
@@ -131,6 +132,9 @@ app.get('/api/lessons', async (req, res) => {
 // Serve static assets from frontend if built
 const frontendDist = path.join(__dirname, '../frontend/dist');
 app.use(express.static(frontendDist));
+// Also serve from ./public (Docker image copies frontend/dist -> /app/public)
+const dockerPublic = path.join(__dirname, 'public');
+app.use(express.static(dockerPublic));
 
 
 
@@ -602,7 +606,7 @@ app.get('*', (req, res) => {
   });
 });
 
-app.listen(port, async () => {
+app.listen(port, '0.0.0.0', async () => {
   serverLog.info({ port, provider: process.env.AI_PROVIDER || 'gemini' }, '🚀 Server started');
 
   // ── User-friendly startup banner: print the exact URL you can copy-paste

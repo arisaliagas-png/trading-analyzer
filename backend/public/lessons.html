@@ -1,0 +1,82 @@
+<!DOCTYPE html>
+<html lang="el">
+<head>
+  <meta charset="UTF-8" />
+  <meta name="viewport" content="width=device-width, initial-scale=1.0" />
+  <title>🧠 Lessons Learned — AI Trading Analyzer</title>
+  <style>
+    :root { --bg:#0b0e14; --panel:#151a23; --border:#222b38; --txt:#e6edf3; --muted:#8b97a7; --green:#10b981; --red:#ef4444; --cyan:#22d3ee; }
+    * { box-sizing: border-box; }
+    body { margin:0; background:var(--bg); color:var(--txt); font-family: system-ui, -apple-system, Segoe UI, Roboto, sans-serif; padding:1.5rem; }
+    h1 { font-size:1.4rem; margin:0 0 0.25rem; }
+    .sub { color:var(--muted); font-size:0.85rem; margin-bottom:1.25rem; }
+    .controls { display:flex; gap:0.5rem; margin-bottom:1rem; flex-wrap:wrap; }
+    input, button { background:var(--panel); color:var(--txt); border:1px solid var(--border); border-radius:8px; padding:0.5rem 0.75rem; font-size:0.9rem; }
+    button { cursor:pointer; }
+    button:hover { border-color:var(--cyan); }
+    .card { background:var(--panel); border:1px solid var(--border); border-radius:12px; padding:1rem 1.25rem; margin-bottom:0.75rem; }
+    .card .head { display:flex; justify-content:space-between; align-items:center; gap:1rem; margin-bottom:0.5rem; }
+    .badge { font-size:0.72rem; padding:0.15rem 0.5rem; border-radius:999px; border:1px solid var(--border); color:var(--muted); }
+    .badge.long { color:var(--green); border-color:rgba(16,185,129,0.4); }
+    .badge.short { color:var(--red); border-color:rgba(239,68,68,0.4); }
+    .pair { font-weight:700; }
+    .reason { color:var(--red); font-size:0.88rem; margin:0.35rem 0; }
+    .lesson { color:var(--cyan); font-size:0.9rem; margin:0.25rem 0; }
+    .meta { color:var(--muted); font-size:0.75rem; margin-top:0.4rem; display:flex; gap:1rem; flex-wrap:wrap; }
+    .empty { color:var(--muted); text-align:center; padding:2rem; }
+    .r-pos { color:var(--green); } .r-neg { color:var(--red); }
+  </style>
+</head>
+<body>
+  <h1>🧠 Lessons Learned</h1>
+  <div class="sub">AI post-mortem / win-review learning log — τι έμαθε το σύστημα από τα SL &amp; TP σου.</div>
+
+  <div class="controls">
+    <input id="pair" type="text" placeholder="BTCUSDT (άδειο = όλα)" style="text-transform:uppercase" />
+    <button id="load">Φόρτωσε</button>
+    <button id="all">Όλα</button>
+  </div>
+
+  <div id="list"><div class="empty">Πάτα «Φόρτωσε» για να δεις τα lessons.</div></div>
+
+  <script>
+    const API = location.origin;
+    function fmtR(r) {
+      if (r == null) return '—';
+      const cls = r >= 0 ? 'r-pos' : 'r-neg';
+      return `<span class="${cls}">${r >= 0 ? '+' : ''}${r}R</span>`;
+    }
+    async function load(pair) {
+      const url = pair ? `${API}/api/lessons?instrument=${encodeURIComponent(pair)}` : `${API}/api/lessons`;
+      const list = document.getElementById('list');
+      list.innerHTML = '<div class="empty">Φόρτωση…</div>';
+      try {
+        const res = await fetch(url);
+        const data = await res.json();
+        const rows = data.lessons || [];
+        if (!rows.length) { list.innerHTML = '<div class="empty">Δεν υπάρχουν lessons ακόμα.</div>'; return; }
+        list.innerHTML = rows.map(r => `
+          <div class="card">
+            <div class="head">
+              <span class="pair">${r.instrument}</span>
+              <span class="badge ${r.direction?.toLowerCase()}">${r.direction}</span>
+            </div>
+            ${r.failure_reason ? `<div class="reason">⚠️ ${escapeHtml(r.failure_reason)}</div>` : ''}
+            ${r.lesson ? `<div class="lesson">💡 ${escapeHtml(r.lesson)}</div>` : ''}
+            <div class="meta">
+              <span>Exit: ${r.exit_price != null ? '$' + r.exit_price : '—'}</span>
+              <span>R: ${fmtR(r.realized_r)}</span>
+              <span>${new Date(r.created_at).toLocaleString('el-GR')}</span>
+            </div>
+          </div>`).join('');
+      } catch (e) {
+        list.innerHTML = `<div class="empty">Σφάλμα: ${escapeHtml(e.message)}</div>`;
+      }
+    }
+    function escapeHtml(s) { return (s || '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;'}[c])); }
+    document.getElementById('load').onclick = () => load(document.getElementById('pair').value.trim());
+    document.getElementById('all').onclick = () => { document.getElementById('pair').value=''; load(''); };
+    load('');
+  </script>
+</body>
+</html>
