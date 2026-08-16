@@ -3,7 +3,7 @@ app = "trading-analyzer-affqwq"
 primary_region = "fra"   # Frankfurt — lowest latency to Greece
 
 [build]
-  context = "backend"
+  context = "."
   dockerfile = "Dockerfile"
 
 [env]
