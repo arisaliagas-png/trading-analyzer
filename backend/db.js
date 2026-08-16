@@ -500,6 +500,26 @@ export function expireStalePending() {
 }
 
 // ─────────────────────────────────────────────
+// STALE ACTIVE EXPIRY
+// An ACTIVE trade that never hit TP/SL within ACTIVE_EXPIRY_HOURS is stale
+// (e.g. a Forex position over a weekend closure, or a setup the market simply
+// never resolved). Expire it as 'EXPIRED' (NOT deleted — we keep the history)
+// so the scanner can produce a fresh setup for that symbol.
+// ─────────────────────────────────────────────
+export const ACTIVE_EXPIRY_HOURS = 96;
+
+export function expireStaleActive() {
+  const cutoff = new Date(Date.now() - ACTIVE_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  const res = db.prepare(
+    `UPDATE trades SET status = 'EXPIRED', closed_at = ? WHERE status = 'ACTIVE' AND created_at < ?`
+  ).run(new Date().toISOString(), cutoff);
+  if (res.changes > 0) {
+    dbLog.info({ expired: res.changes, olderThan: cutoff }, 'Expired stale ACTIVE trades');
+  }
+  return res.changes;
+}
+
+// ─────────────────────────────────────────────
 // R-MULTIPLE — realized risk multiple for a trade
 // R = (exit - entry) / risk, where risk = |entry - sl|
 // For LONG:  exit above entry → +R. For SHORT: exit below entry → +R.

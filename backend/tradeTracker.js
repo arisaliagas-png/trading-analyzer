@@ -18,7 +18,8 @@ import {
   removeSignalByInstrument,
   getPriceHistory,
   markEnteredZone,
-  expireStalePending
+  expireStalePending,
+  expireStaleActive
 } from './db.js';
 import { analyzeChart } from './aiProvider.js';
 import { trackerLog } from './logger.js';
@@ -170,6 +171,8 @@ async function fetchPrices(symbols) {
 export async function monitorTrades() {
   // Expire stale PENDING setups that never entered their zone (72h cutoff)
   try { expireStalePending(); } catch (e) { trackerLog.error({ err: e.message }, 'expireStalePending error'); }
+  // Expire stale ACTIVE trades that never hit TP/SL (96h cutoff — e.g. weekend Forex closure)
+  try { expireStaleActive(); } catch (e) { trackerLog.error({ err: e.message }, 'expireStaleActive error'); }
 
   const activeTrades = getActiveTrades(); // reads from SQLite
   if (!activeTrades.length) return;

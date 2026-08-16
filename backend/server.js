@@ -42,10 +42,12 @@ const app = express();
 const port = process.env.PORT || 5000;
 
 // ─────────────────────────────────────────────
-// [1C] CORS — restrict to localhost only (single-user local deployment)
-// Add your production domain here if you ever deploy remotely.
+// [1C] CORS — restrict to known origins.
+// Local dev defaults are hardcoded below. For remote/cloud/Tailscale access,
+// set ALLOWED_ORIGINS env var (comma-separated) to add e.g. your Tailscale IP:
+//   ALLOWED_ORIGINS=http://100.64.1.5:5000,http://localhost:5000
 // ─────────────────────────────────────────────
-const ALLOWED_ORIGINS = [
+const DEFAULT_ORIGINS = [
   'http://localhost:5000',
   'http://localhost:5173',
   'http://localhost:5174',
@@ -54,9 +56,12 @@ const ALLOWED_ORIGINS = [
   'http://127.0.0.1:5173',
   'http://127.0.0.1:3000'
 ];
+const ALLOWED_ORIGINS = (process.env.ALLOWED_ORIGINS || '')
+  .split(',').map(s => s.trim()).filter(Boolean)
+  .concat(DEFAULT_ORIGINS);
 app.use(cors({
   origin: (origin, cb) => {
-    // allow requests with no origin (mobile apps, curl, Postman)
+    // allow requests with no origin (mobile apps, curl, Postman, Tailscale IPs)
     if (!origin || ALLOWED_ORIGINS.includes(origin)) return cb(null, true);
     cb(new Error(`CORS blocked: ${origin} is not an allowed origin.`));
   },
@@ -583,6 +588,14 @@ app.get('*', (req, res) => {
 
 app.listen(port, () => {
   serverLog.info({ port, provider: process.env.AI_PROVIDER || 'gemini' }, '🚀 Server started');
+
+  // ── User-friendly startup banner: print the exact URL you can copy-paste
+  //    into a browser. (The @url: prefix that some terminals emit is not
+  //    reliably selectable, so we emit a clean, plain line here.) ──
+  console.log('────────────────────────────────────────────────────────────');
+  console.log(`  🌐 Open in browser:  http://localhost:${port}/`);
+  console.log(`  🔑 Provider:          ${process.env.AI_PROVIDER || 'gemini'}`);
+  console.log('────────────────────────────────────────────────────────────');
 
   // Migrate legacy JSON data to SQLite (runs once, skipped if DB already has data)
   migrateFromJSON();

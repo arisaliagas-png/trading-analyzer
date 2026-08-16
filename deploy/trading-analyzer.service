@@ -1,0 +1,21 @@
+[Unit]
+Description=AI Trading Analyzer backend (24/7, auto-restart)
+After=network.target
+
+[Service]
+Type=simple
+# Change this path to your VM's project location (on the persistent Block Volume)
+WorkingDirectory=/home/ubuntu/trading-analyzer/backend
+ExecStart=/usr/bin/node /home/ubuntu/trading-analyzer/backend/server.js
+Restart=always
+RestartSec=5
+User=ubuntu
+# Load env vars from the .env file
+EnvironmentFile=/home/ubuntu/trading-analyzer/backend/.env
+Environment=NODE_ENV=production
+Environment=PORT=5000
+# Add your Tailscale IP to ALLOWED_ORIGINS:
+Environment=ALLOWED_ORIGINS=http://localhost:5000
+
+[Install]
+WantedBy=multi-user.target
