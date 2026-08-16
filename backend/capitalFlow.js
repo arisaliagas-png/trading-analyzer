@@ -88,7 +88,8 @@ export async function getCapitalFlow(force = false) {
       change1d: +pct1d.toFixed(2),
       change7d: +pct7d.toFixed(2),
       flow: effDir,
-      score: effScore
+      score: effScore,
+      available: true
     });
   }
 

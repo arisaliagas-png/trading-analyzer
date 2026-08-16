@@ -112,6 +112,26 @@ app.get('/api/alerts', (req, res) => {
   }
 });
 
+// ── Lessons (AI post-mortem / win-review learning log) ──
+// Returns stored lessons. ?instrument=BTCUSDT filters by symbol; otherwise all.
+// Includes exit_price + realized_r (enriched analytics) when present.
+app.get('/api/lessons', (req, res) => {
+  try {
+    const { instrument } = req.query;
+    let rows;
+    if (instrument) {
+      rows = db.prepare(
+        'SELECT * FROM lessons WHERE instrument = ? ORDER BY created_at DESC LIMIT 50'
+      ).all(instrument.toUpperCase());
+    } else {
+      rows = db.prepare('SELECT * FROM lessons ORDER BY created_at DESC LIMIT 50').all();
+    }
+    res.json({ lessons: rows, count: rows.length });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 // Serve static assets from frontend if built
 const frontendDist = path.join(__dirname, '../frontend/dist');
 app.use(express.static(frontendDist));

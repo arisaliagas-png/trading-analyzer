@@ -104,6 +104,18 @@ try {
   if (!/duplicate column/i.test(e.message)) throw e;
 }
 
+// ── Migration: enrich lessons with exit price + realized R (learning analytics) ──
+try {
+  db.exec(`ALTER TABLE lessons ADD COLUMN exit_price REAL`);
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e;
+}
+try {
+  db.exec(`ALTER TABLE lessons ADD COLUMN realized_r REAL`);
+} catch (e) {
+  if (!/duplicate column/i.test(e.message)) throw e;
+}
+
 // ── Migration: add entered_zone flag (persistent PENDING→ACTIVE latch) ──
 // Once price has ever touched the entry zone, the trade is ACTIVE for good —
 // even if it slipped between monitor ticks. Stored on the row so a restart or
@@ -202,6 +214,12 @@ const stmts = {
   getAll:           db.prepare(`SELECT * FROM trades ORDER BY created_at DESC`),
   getPriceHistory:  db.prepare(`SELECT price, sampled_at FROM price_history WHERE trade_id = ? ORDER BY id ASC`),
   getLessons:       db.prepare(`SELECT * FROM lessons WHERE instrument = ? AND direction = ? ORDER BY created_at DESC LIMIT 3`),
+  getRecentLessonSamePair: db.prepare(`
+    SELECT 1 FROM lessons
+    WHERE instrument = ? AND direction = ?
+      AND created_at > datetime('now', '-24 hours')
+    LIMIT 1
+  `),
   getAllLessons:     db.prepare(`SELECT * FROM lessons ORDER BY created_at DESC`),
   deleteById:       db.prepare(`DELETE FROM trades WHERE id = ?`),
   deleteByInstrument: db.prepare(`DELETE FROM trades WHERE instrument = ?`),
@@ -373,6 +391,8 @@ export function saveLesson(trade, analysis) {
     direction:      trade.direction,
     failure_reason: analysis.failureReason,
     lesson:         analysis.lesson,
+    exit_price:     analysis.exitPrice ?? null,
+    realized_r:     analysis.realizedR ?? null,
     created_at:     new Date().toISOString()
   });
   // Attach lesson summary to the trade row (stored as JSON in indicator_snapshot extension)
@@ -467,6 +487,11 @@ export function getLessonsFor(instrument, direction) {
   return stmts.getLessons.all(instrument.toUpperCase(), direction);
 }
 
+/** Returns true if the same instrument+direction already had a post-mortem in the last 24h. */
+export function hasRecentLesson(instrument, direction) {
+  return !!stmts.getRecentLessonSamePair.get(instrument.toUpperCase(), direction);
+}
+
 /** Returns all lessons (for diagnostics / dashboard). */
 export function getAllLessons() {
   return stmts.getAllLessons.all();
@@ -510,13 +535,17 @@ export const ACTIVE_EXPIRY_HOURS = 96;
 
 export function expireStaleActive() {
   const cutoff = new Date(Date.now() - ACTIVE_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  // First collect the trades that WILL expire (so the caller can run a post-mortem)
+  const expiring = db.prepare(
+    `SELECT * FROM trades WHERE status = 'ACTIVE' AND created_at < ?`
+  ).all(cutoff);
   const res = db.prepare(
     `UPDATE trades SET status = 'EXPIRED', closed_at = ? WHERE status = 'ACTIVE' AND created_at < ?`
   ).run(new Date().toISOString(), cutoff);
   if (res.changes > 0) {
     dbLog.info({ expired: res.changes, olderThan: cutoff }, 'Expired stale ACTIVE trades');
   }
-  return res.changes;
+  return expiring; // array of trade rows that just expired (empty if none)
 }
 
 // ─────────────────────────────────────────────

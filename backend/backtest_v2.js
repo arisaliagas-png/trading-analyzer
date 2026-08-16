@@ -507,6 +507,13 @@ async function runBacktest(symbol, limit = 1000, opts = {}, cachedKlines = null)
     longCount: longs.length, shortCount: shorts.length,
     longWinRate: longs.length ? (longs.filter(r => r.outcome === 'SUCCESS').length / longs.length * 100).toFixed(1) : '0.0',
     shortWinRate: shorts.length ? (shorts.filter(r => r.outcome === 'SUCCESS').length / shorts.length * 100).toFixed(1) : '0.0',
+    // Debug counters (when opts.returnDebug is true)
+    dbg: process.env.BT_DEBUG ? {
+      swings: cSwings, structComputed: cStruct, inOTE: cInOTE, passedFilters: cFilters,
+      wtCross: dbg.wtCross, mtfBull: dbg.mtfBull, mtfBear: dbg.mtfBear,
+      zBull: dbg.zBull, zBear: dbg.zBear, volOk: dbg.volOk,
+      smartLong: dbg.sLong, smartShort: dbg.sShort, structUp: dbg.structUp,
+    } : null,
   };
 }
 

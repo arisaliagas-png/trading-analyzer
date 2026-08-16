@@ -15,6 +15,7 @@ import {
   updateTradeStatus,
   recordPrice,
   saveLesson,
+  hasRecentLesson,
   removeSignalByInstrument,
   getPriceHistory,
   markEnteredZone,
@@ -172,7 +173,14 @@ export async function monitorTrades() {
   // Expire stale PENDING setups that never entered their zone (72h cutoff)
   try { expireStalePending(); } catch (e) { trackerLog.error({ err: e.message }, 'expireStalePending error'); }
   // Expire stale ACTIVE trades that never hit TP/SL (96h cutoff — e.g. weekend Forex closure)
-  try { expireStaleActive(); } catch (e) { trackerLog.error({ err: e.message }, 'expireStaleActive error'); }
+  try {
+    const expired = expireStaleActive();
+    for (const t of expired) {
+      triggerTimeoutPostMortem(t).catch(e =>
+        trackerLog.error({ tradeId: t.id, err: e.message }, 'Timeout post-mortem failed')
+      );
+    }
+  } catch (e) { trackerLog.error({ err: e.message }, 'expireStaleActive error'); }
 
   const activeTrades = getActiveTrades(); // reads from SQLite
   if (!activeTrades.length) return;
@@ -254,6 +262,14 @@ export async function monitorTrades() {
 async function triggerPostMortem(trade) {
   trackerLog.info({ tradeId: trade.id, symbol: trade.instrument }, 'Running AI post-mortem');
 
+  // Dedupe: if the same instrument+direction already had a post-mortem in the
+  // last 24h, skip the AI call — we already learned this lesson (saves credits
+  // and avoids re-spamming the same lesson).
+  if (hasRecentLesson(trade.instrument, trade.direction)) {
+    trackerLog.info({ tradeId: trade.id, symbol: trade.instrument }, 'Skipped post-mortem (same pair+direction learned <24h ago)');
+    return;
+  }
+
   const prompt = `
 [POST-MORTEM ANALYSIS REQUEST]
 A trade setup has failed (hit Stop Loss). Analyze the failure to extract actionable lessons.
@@ -299,9 +315,88 @@ Return ONLY valid JSON (no markdown, no preamble):
     throw new Error('Post-mortem response missing required fields.');
   }
 
+  // Enrich with exit analytics (what price stopped us out, and the realized R)
+  const exitPrice = trade.closePrice ?? trade.close_price ?? null;
+  const risk = (trade.entryPrice != null && trade.sl != null) ? Math.abs(trade.entryPrice - trade.sl) : 0;
+  const realizedR = (exitPrice != null && risk > 0)
+    ? ((trade.direction === 'SHORT')
+        ? (trade.entryPrice - exitPrice) / risk
+        : (exitPrice - trade.entryPrice) / risk)
+    : null;
+  analysis.exitPrice = exitPrice;
+  analysis.realizedR = realizedR != null ? +realizedR.toFixed(2) : null;
+
   // Persist lesson to SQLite
   saveLesson(trade, analysis);
-  trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, lesson: analysis.lesson }, 'Lesson saved');
+  trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, lesson: analysis.lesson, realizedR: analysis.realizedR }, 'Lesson saved');
+}
+
+// ─────────────────────────────────────────────
+// TIMEOUT POST-MORTEM — learn from STALE setups
+// A trade that stayed ACTIVE for 96h+ without hitting TP/SL (e.g. weekend Forex
+// closure, or a setup the market simply never resolved) is expired as EXPIRED.
+// This is different from a hard SL: the trade didn't fail, it just never
+// resolved. We still want to learn: did it enter the zone? did price stall?
+// ─────────────────────────────────────────────
+async function triggerTimeoutPostMortem(trade) {
+  trackerLog.info({ tradeId: trade.id, symbol: trade.instrument }, 'Running timeout post-mortem (stale ACTIVE)');
+
+  // Dedupe: skip if same pair+direction learned <24h ago
+  if (hasRecentLesson(trade.instrument, trade.direction)) {
+    trackerLog.info({ tradeId: trade.id, symbol: trade.instrument }, 'Skipped timeout post-mortem (same pair+direction learned <24h ago)');
+    return;
+  }
+
+  const prompt = `
+[TIMEOUT POST-MORTEM REQUEST]
+A trade setup stayed OPEN for ${ACTIVE_EXPIRY_HOURS}+ hours (ACTIVE) without hitting either Take Profit or Stop Loss, then was auto-expired. This is a STALE setup, not a hard loss — but it tied up capital and blocked fresh scanner signals for the symbol.
+
+TRADE METRICS:
+- Instrument: ${trade.instrument}
+- Direction: ${trade.direction}
+- Entry Zone: $${trade.entryLow} - $${trade.entryHigh} (Ideal: $${trade.entryPrice})
+- Stop Loss: $${trade.sl}
+- Take Profit 1: $${trade.tp1}
+- Entered zone: ${trade.entered_zone ? 'YES (price reached entry zone)' : 'NO (price never entered the zone)'}
+- Indicator Snapshot at execution:
+${JSON.stringify(trade.indicatorSnapshot || [], null, 2)}
+
+- AI Reason at execution:
+${trade.reasoning}
+
+TASK:
+Explain WHY this setup stalled instead of resolving (e.g. entered zone but range-bound, never triggered; or never entered because momentum died; or weekend Forex closure froze price action). Then produce ONE actionable rule to avoid tying up capital on non-resolving setups (e.g. 'Expire ACTIVE setups faster if price enters zone but shows <X% movement in N hours' or 'Require momentum continuation confirmation after zone entry').
+
+Return ONLY valid JSON (no markdown, no preamble):
+{
+  "failureReason": "Short explanation of why the setup stalled (stale, not a loss)",
+  "lesson": "Actionable rule for the engine (e.g., 'For range-bound entries, set a tighter max-hold; expire if no TP/SL progress within 24h of zone entry')"
+}
+`;
+
+  const response = await analyzeChart(
+    null, null,
+    trade.instrument,
+    trade.timeframe,
+    'TIMEOUT_POST_MORTEM_OVERRIDE',
+    null,
+    prompt,
+    null
+  );
+
+  const analysis = (typeof response === 'object' && response !== null) ? response : {};
+
+  if (!analysis.failureReason || !analysis.lesson) {
+    throw new Error('Timeout post-mortem response missing required fields.');
+  }
+
+  // A timeout is not a realized loss — mark R as null (no exit price)
+  analysis.exitPrice = null;
+  analysis.realizedR = null;
+  analysis.failureReason = `[STALE/TIMEOUT] ${analysis.failureReason}`;
+
+  saveLesson(trade, analysis);
+  trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, lesson: analysis.lesson }, 'Timeout lesson saved');
 }
 
 // ─────────────────────────────────────────────
@@ -385,8 +480,13 @@ Return ONLY valid JSON (no markdown, no preamble):
       throw new Error('Win review response missing required fields.');
     }
 
-    saveLesson(trade, { failure_reason: `Under-delivered R (${realizedR.toFixed(2)}R vs ${plannedR.toFixed(2)}R planned)`, lesson: analysis.lesson });
-    trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, lesson: analysis.lesson }, 'Win-review lesson saved');
+    // Enrich with exit analytics (already computed above)
+    analysis.exitPrice = closePrice;
+    analysis.realizedR = +realizedR.toFixed(2);
+    analysis.failureReason = `Under-delivered R (${realizedR.toFixed(2)}R vs ${plannedR.toFixed(2)}R planned)`;
+
+    saveLesson(trade, analysis);
+    trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, lesson: analysis.lesson, realizedR: analysis.realizedR }, 'Win-review lesson saved');
   } catch (e) {
     trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review error');
   }
