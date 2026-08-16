@@ -13,7 +13,7 @@ import { fetchAssetNews } from './newsSearch.js';
 import { registerTradeSetup, startTracker } from './tradeTracker.js';
 import { getCapitalFlow } from './capitalFlow.js';
 import { startScanner, getActiveSignals, triggerManualScan, getScanState } from './scanner.js';
-import { migrateFromJSON, getAllTrades, getAllLessons, db } from './db.js';
+import { migrateFromJSON, getAllTrades, getAllLessons, getLessonsFor, getAlerts, markAlertsSeen } from './db.js';
 import { computeAnalytics } from './analytics.js';
 import { serverLog } from './logger.js';
 import { resetCircuitBreaker, getCircuitBreakerState, ACCOUNT_EQUITY } from './riskManager.js';
@@ -98,14 +98,14 @@ app.use(express.json());
 // ── Alerts (trade closed notifications) ──
 // Returns recent alerts. ?unread=1 returns unseen alerts and marks as seen.
 // NOTE: Must be registered before express.static(frontend) to avoid SPA fallback.
-app.get('/api/alerts', (req, res) => {
+app.get('/api/alerts', async (req, res) => {
   try {
     if (req.query.unread === '1') {
-      const rows = db.prepare('SELECT * FROM alerts WHERE seen = 0 ORDER BY created_at DESC LIMIT 20').all();
-      db.exec('UPDATE alerts SET seen = 1 WHERE seen = 0');
+      const rows = await getAlerts({ unreadOnly: true });
+      await markAlertsSeen();
       return res.json({ alerts: rows, unreadCount: rows.length });
     }
-    const rows = db.prepare('SELECT * FROM alerts ORDER BY created_at DESC LIMIT 50').all();
+    const rows = await getAlerts();
     res.json({ alerts: rows });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -115,18 +115,14 @@ app.get('/api/alerts', (req, res) => {
 // ── Lessons (AI post-mortem / win-review learning log) ──
 // Returns stored lessons. ?instrument=BTCUSDT filters by symbol; otherwise all.
 // Includes exit_price + realized_r (enriched analytics) when present.
-app.get('/api/lessons', (req, res) => {
+// Works in both SQLite and Supabase modes (uses db facade, not raw db.prepare).
+app.get('/api/lessons', async (req, res) => {
   try {
     const { instrument } = req.query;
-    let rows;
-    if (instrument) {
-      rows = db.prepare(
-        'SELECT * FROM lessons WHERE instrument = ? ORDER BY created_at DESC LIMIT 50'
-      ).all(instrument.toUpperCase());
-    } else {
-      rows = db.prepare('SELECT * FROM lessons ORDER BY created_at DESC LIMIT 50').all();
-    }
-    res.json({ lessons: rows, count: rows.length });
+    const lessons = instrument
+      ? await getLessonsFor(instrument.toUpperCase(), null)
+      : await getAllLessons();
+    res.json({ lessons, count: lessons.length });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -445,9 +441,9 @@ app.get('/api/heatmap-stream', (req, res) => {
 // ─────────────────────────────────────────────
 // SCANNER — manual trigger + active signals
 // ─────────────────────────────────────────────
-app.get('/api/signals', (req, res) => {
+app.get('/api/signals', async (req, res) => {
   try {
-    const signals = getActiveSignals();
+    const signals = await getActiveSignals();
     res.json({ signals });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -455,8 +451,8 @@ app.get('/api/signals', (req, res) => {
 });
 
 // GET /api/scanner/status — returns scan state (isScanning, lastScanAt, circuitBreaker, etc.)
-app.get('/api/scanner/status', (req, res) => {
-  res.json(getScanState());
+app.get('/api/scanner/status', async (req, res) => {
+  res.json(await getScanState());
 });
 
 // POST /api/scanner/run — manually triggers a full scan
@@ -470,9 +466,9 @@ app.post('/api/scanner/run', async (req, res) => {
 });
 
 // POST /api/scanner/reset — manually resets the circuit breaker
-app.post('/api/scanner/reset', (req, res) => {
+app.post('/api/scanner/reset', async (req, res) => {
   resetCircuitBreaker();
-  const state = getCircuitBreakerState();
+  const state = await getCircuitBreakerState();
   serverLog.warn({ resetAt: state.resetAt }, 'Circuit breaker reset by user via API');
   res.json({ ok: true, message: 'Circuit breaker reset. Scanning is now unlocked.', state });
 });
@@ -480,9 +476,9 @@ app.post('/api/scanner/reset', (req, res) => {
 // ─────────────────────────────────────────────
 // TRACKER HISTORY — trades from SQLite
 // ─────────────────────────────────────────────
-app.get('/api/history', (req, res) => {
+app.get('/api/history', async (req, res) => {
   try {
-    const history = getAllTrades();
+    const history = await getAllTrades();
     res.json({ history });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -492,9 +488,9 @@ app.get('/api/history', (req, res) => {
 // ─────────────────────────────────────────────
 // LESSONS — AI post-mortem lessons from SQLite
 // ─────────────────────────────────────────────
-app.get('/api/lessons', (req, res) => {
+app.get('/api/lessons', async (req, res) => {
   try {
-    const lessons = getAllLessons();
+    const lessons = await getAllLessons();
     res.json({ lessons });
   } catch (e) {
     res.status(500).json({ error: e.message });
@@ -504,9 +500,9 @@ app.get('/api/lessons', (req, res) => {
 // ─────────────────────────────────────────────
 // ANALYTICS — live forward-test statistics
 // ─────────────────────────────────────────────
-app.get('/api/analytics', (req, res) => {
+app.get('/api/analytics', async (req, res) => {
   try {
-    const stats = computeAnalytics();
+    const stats = await computeAnalytics();
     res.json(stats);
   } catch (e) {
     serverLog.error({ err: e.message }, 'Analytics computation failed');
@@ -554,8 +550,8 @@ app.post('/api/chat', async (req, res) => {
 // ─────────────────────────────────────────────
 // UTILITIES
 // ─────────────────────────────────────────────
-app.get('/health', (req, res) => {
-  const cb = getCircuitBreakerState();
+app.get('/health', async (req, res) => {
+  const cb = await getCircuitBreakerState();
   res.json({
     status:         'ok',
     provider:       process.env.AI_PROVIDER || 'gemini',
@@ -606,7 +602,7 @@ app.get('*', (req, res) => {
   });
 });
 
-app.listen(port, () => {
+app.listen(port, async () => {
   serverLog.info({ port, provider: process.env.AI_PROVIDER || 'gemini' }, '🚀 Server started');
 
   // ── User-friendly startup banner: print the exact URL you can copy-paste
@@ -624,6 +620,6 @@ app.listen(port, () => {
   startTracker();
 
   // Initialise scanner (loads signal count from DB)
-  startScanner();
+  await startScanner();
 });
 

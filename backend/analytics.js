@@ -46,9 +46,9 @@ function avg(arr) {
 // For a SHORT: realized = (entry - min_price) / (sl - entry)
 // Only available for trades with price history records.
 // ─────────────────────────────────────────────
-function realizedRR(trade) {
+async function realizedRR(trade) {
   if (!trade.entryPrice || !trade.sl) return null;
-  const prices = getPriceHistory(trade.id).map(r => r.price);
+  const prices = (await getPriceHistory(trade.id)).map(r => r.price);
   if (!prices.length) return null;
 
   const entry = trade.entryPrice;
@@ -156,8 +156,8 @@ function gradeCalibration(trades) {
 // ─────────────────────────────────────────────
 // MAIN ANALYTICS FUNCTION
 // ─────────────────────────────────────────────
-export function computeAnalytics() {
-  const allTrades = getAllTrades();
+export async function computeAnalytics() {
+  const allTrades = await getAllTrades();
   const closed    = allTrades.filter(t => t.status === 'SUCCESS' || t.status === 'FAILED');
   const active    = allTrades.filter(t => t.status === 'ACTIVE');
   const pending   = allTrades.filter(t => t.status === 'PENDING');
@@ -183,7 +183,7 @@ export function computeAnalytics() {
 
   // ── 5. Theoretical vs Realized R:R ─────────────────────
   const thRR = closed.map(t => t.rr).filter(Boolean);
-  const realRR = closed.map(t => realizedRR(t)).filter(v => v !== null);
+  const realRR = await Promise.all(closed.map(async t => realizedRR(t))).then(rs => rs.filter(v => v !== null));
 
   const rrAnalysis = {
     avgTheoreticalRR:  avg(thRR),

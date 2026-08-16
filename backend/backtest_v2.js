@@ -289,7 +289,16 @@ async function runBacktest(symbol, limit = 1000, opts = {}, cachedKlines = null)
   const dbg = { wtCross: 0, mtfBull: 0, mtfBear: 0, zBull: 0, zBear: 0, volOk: 0, sLong: 0, sShort: 0, structUp: 0, sLongExact: 0 };
   let prevStruct = null; // stateful BOS direction (Pine: var bool structIsUp = true)
 
-  for (let i = 300; i < close.length - 200; i++) {
+  // Reserve maxBars for forward simulation; reserve maxBars+buffer for warmup
+  // (indicators need history: EMA200 ~200, WT ~34, pivots 5+5=10). For short
+  // windows (e.g. 100-candle speed scans) fall back to whatever fits rather
+  // than silently producing zero iterations — the scan shrinks but still runs.
+  const maxBars = 100;
+  const simReserve = maxBars + 4;               // small buffer so TP/SL aren't clipped by last candle
+  const warmReserve = 205;                       // EMA200 warmup + WT/pivot needs
+  const scanEnd = Math.max(0, close.length - simReserve);
+  const scanStart = Math.min(300, Math.max(warmReserve, scanEnd));
+  for (let i = scanStart; i < scanEnd; i++) {
     // Need enough history for pivots + indicators
     if (wt1[i] === null || wt2[i] === null || atrArr[i] === null) continue;
     if (ema200_1h[i] === null) continue;

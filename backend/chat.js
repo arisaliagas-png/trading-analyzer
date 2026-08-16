@@ -11,7 +11,7 @@ import { getAllLessons, getActiveTrades } from './db.js';
 
 // Build a compact, token-efficient snapshot of the analyzer's current state.
 async function buildContext() {
-  const signals = getActiveSignals();
+  const signals = await getActiveSignals();
   const sigLines = signals.length
     ? signals.map(s => {
         const dir = s.direction || '?';
@@ -36,7 +36,7 @@ async function buildContext() {
 
   let lessonLines = '(none)';
   try {
-    const lessons = getAllLessons().slice(-5);
+    const lessons = (await getAllLessons()).slice(-5);
     if (lessons.length) {
       lessonLines = lessons
         .map(l => `- ${l.instrument} ${l.direction || ''}: ${l.failure_reason || ''} → lesson: ${l.lesson || ''}`)

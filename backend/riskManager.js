@@ -98,7 +98,7 @@ export function positionSizeSummary(entry, sl, grade, status) {
  *
  * @returns {{ tripped: boolean, consecutiveFails: number, resetAt: string|null, message: string|null }}
  */
-export function getCircuitBreakerState() {
+export async function getCircuitBreakerState() {
   if (_manualReset) {
     return {
       tripped:          false,
@@ -108,7 +108,7 @@ export function getCircuitBreakerState() {
     };
   }
 
-  const allTrades = getAllTrades();
+  const allTrades = await getAllTrades();
   const closed = allTrades
     .filter(t => t.status === 'SUCCESS' || t.status === 'FAILED')
     .sort((a, b) => new Date(b.closedAt || b.createdAt) - new Date(a.closedAt || a.createdAt));

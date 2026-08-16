@@ -512,7 +512,16 @@ export async function analyzeChart(imageBuffer, mimeType, pair = '', timeframe =
           return `  • ${c.label}: ${arrow} ${c.change1d > 0 ? '+' : ''}${c.change1d}% 1d${extra}  [${c.symbol}]`;
         });
       if (lines.length) {
-        flowSection = `\n\n💰 CAPITAL FLOW MAP (where money is rotating across asset classes, last 24h):\n${lines.join('\n')}\nInterpretation: If capital is flowing OUT of crypto into metals/USD, reduce long conviction. If flowing INTO crypto, it supports risk-on setups. Use as a macro tailwind/headwind filter on your bias.`;
+        const nl = '\n';
+        let fgLine = '';
+        if (flow.fearGreed?.available) {
+          const fg = flow.fearGreed;
+          const tag = fg.value >= 75 ? 'EXTREME GREED' : fg.value >= 50 ? 'GREED' : fg.value >= 25 ? 'FEAR' : 'EXTREME FEAR';
+          fgLine = nl + '  🧠 CRYPTO FEAR & GREED INDEX: ' + fg.value + '/100 (' + tag + ') — ' + (fg.signal >= 1 ? 'risk-on bias, watch for euphoria/reversal' : fg.signal <= -1 ? 'risk-off / capitulation zone, watch for bottoms' : 'neutral sentiment') + '.';
+        }
+        const head = '💰 CAPITAL FLOW MAP (where money is rotating across asset classes, last 24h):';
+        const tail = 'Interpretation: If capital is flowing OUT of crypto into metals/USD, reduce long conviction. If flowing INTO crypto, it supports risk-on setups. Use as a macro tailwind/headwind filter on your bias. Cross-reference with the Fear & Greed signal above.';
+        flowSection = nl + nl + head + nl + lines.join(nl) + fgLine + nl + tail;
       }
     }
   } catch (e) {

@@ -171,10 +171,10 @@ async function fetchPrices(symbols) {
 // ─────────────────────────────────────────────
 export async function monitorTrades() {
   // Expire stale PENDING setups that never entered their zone (72h cutoff)
-  try { expireStalePending(); } catch (e) { trackerLog.error({ err: e.message }, 'expireStalePending error'); }
+  try { await expireStalePending(); } catch (e) { trackerLog.error({ err: e.message }, 'expireStalePending error'); }
   // Expire stale ACTIVE trades that never hit TP/SL (96h cutoff — e.g. weekend Forex closure)
   try {
-    const expired = expireStaleActive();
+    const expired = await expireStaleActive();
     for (const t of expired) {
       triggerTimeoutPostMortem(t).catch(e =>
         trackerLog.error({ tradeId: t.id, err: e.message }, 'Timeout post-mortem failed')
@@ -182,7 +182,7 @@ export async function monitorTrades() {
     }
   } catch (e) { trackerLog.error({ err: e.message }, 'expireStaleActive error'); }
 
-  const activeTrades = getActiveTrades(); // reads from SQLite
+  const activeTrades = await getActiveTrades(); // reads from SQLite
   if (!activeTrades.length) return;
 
   const uniqueSymbols = [...new Set(activeTrades.map(t => t.instrument))];
@@ -194,7 +194,7 @@ export async function monitorTrades() {
     // Record price sample if we have one (pruned to last 50). We do NOT skip
     // the trade when price is missing — otherwise its history stays empty and
     // the PENDING→ACTIVE latch can never fire.
-    if (currentPrice) recordPrice(trade.id, currentPrice);
+    if (currentPrice) await recordPrice(trade.id, currentPrice);
 
     const isLong = trade.direction === 'LONG';
 
@@ -207,14 +207,14 @@ export async function monitorTrades() {
         : (currentPrice >= trade.entryLow  && currentPrice <= trade.entryHigh));
 
       if (!enteredZone) {
-        const history = getPriceHistory(trade.id);
+        const history = await getPriceHistory(trade.id);
         enteredZone = history.some(h => isLong
           ? (h.price <= trade.entryHigh && h.price >= trade.entryLow)
           : (h.price >= trade.entryLow  && h.price <= trade.entryHigh));
       }
 
       if (enteredZone) {
-        markEnteredZone(trade.id, currentPrice);
+        await markEnteredZone(trade.id, currentPrice);
         trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, 'Trade now ACTIVE');
       }
 
@@ -230,8 +230,8 @@ export async function monitorTrades() {
       const hitSl  = isLong ? (currentPrice <= trade.sl + slBand)   : (currentPrice >= trade.sl - slBand);
 
       if (hitTp1) {
-        updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
-        removeSignalByInstrument(trade.instrument);
+        await updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
+        await removeSignalByInstrument(trade.instrument);
         onTradeClosed('SUCCESS');
         trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '🎯 Trade hit TAKE PROFIT');
 
@@ -242,8 +242,8 @@ export async function monitorTrades() {
         );
 
       } else if (hitSl) {
-        updateTradeStatus(trade.id, 'FAILED', currentPrice, trade.entry_price);
-        removeSignalByInstrument(trade.instrument);
+        await updateTradeStatus(trade.id, 'FAILED', currentPrice, trade.entry_price);
+        await removeSignalByInstrument(trade.instrument);
         onTradeClosed('FAILED');
         trackerLog.warn({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '❌ Trade hit STOP LOSS');
 
@@ -265,7 +265,7 @@ async function triggerPostMortem(trade) {
   // Dedupe: if the same instrument+direction already had a post-mortem in the
   // last 24h, skip the AI call — we already learned this lesson (saves credits
   // and avoids re-spamming the same lesson).
-  if (hasRecentLesson(trade.instrument, trade.direction)) {
+  if (await hasRecentLesson(trade.instrument, trade.direction)) {
     trackerLog.info({ tradeId: trade.id, symbol: trade.instrument }, 'Skipped post-mortem (same pair+direction learned <24h ago)');
     return;
   }
@@ -327,7 +327,7 @@ Return ONLY valid JSON (no markdown, no preamble):
   analysis.realizedR = realizedR != null ? +realizedR.toFixed(2) : null;
 
   // Persist lesson to SQLite
-  saveLesson(trade, analysis);
+  await saveLesson(trade, analysis);
   trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, lesson: analysis.lesson, realizedR: analysis.realizedR }, 'Lesson saved');
 }
 
@@ -342,7 +342,7 @@ async function triggerTimeoutPostMortem(trade) {
   trackerLog.info({ tradeId: trade.id, symbol: trade.instrument }, 'Running timeout post-mortem (stale ACTIVE)');
 
   // Dedupe: skip if same pair+direction learned <24h ago
-  if (hasRecentLesson(trade.instrument, trade.direction)) {
+  if (await hasRecentLesson(trade.instrument, trade.direction)) {
     trackerLog.info({ tradeId: trade.id, symbol: trade.instrument }, 'Skipped timeout post-mortem (same pair+direction learned <24h ago)');
     return;
   }
@@ -395,7 +395,7 @@ Return ONLY valid JSON (no markdown, no preamble):
   analysis.realizedR = null;
   analysis.failureReason = `[STALE/TIMEOUT] ${analysis.failureReason}`;
 
-  saveLesson(trade, analysis);
+  await saveLesson(trade, analysis);
   trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, lesson: analysis.lesson }, 'Timeout lesson saved');
 }
 
@@ -485,7 +485,7 @@ Return ONLY valid JSON (no markdown, no preamble):
     analysis.realizedR = +realizedR.toFixed(2);
     analysis.failureReason = `Under-delivered R (${realizedR.toFixed(2)}R vs ${plannedR.toFixed(2)}R planned)`;
 
-    saveLesson(trade, analysis);
+    await saveLesson(trade, analysis);
     trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, lesson: analysis.lesson, realizedR: analysis.realizedR }, 'Win-review lesson saved');
   } catch (e) {
     trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review error');

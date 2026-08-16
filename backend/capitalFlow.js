@@ -94,9 +94,39 @@ export async function getCapitalFlow(force = false) {
   }
 
   result.btcUsd = firstPrice;
+
+  // ── Fear & Greed Index (Alternative.me) ──
+  // Free, no key. Adds a market-wide sentiment layer on top of the
+  // cross-asset flow map. Cached 10 min (same TTL as the rest).
+  result.fearGreed = await getFearGreed();
+
   // Always cache the result (even on full failure) so a rate-limit / network blip
   // doesn't burn the daily Twelve Data quota by re-fetching every request. The
   // manual Refresh button passes force=true to bypass this.
   cache = { ts: now, data: result };
   return result;
+}
+
+// Crypto Fear & Greed Index (0-100). 0-24 Extreme Fear, 25-49 Fear,
+// 50-74 Greed, 75-100 Extreme Greed. Free endpoint, no API key.
+async function getFearGreed() {
+  try {
+    const res = await fetch('https://api.alternative.me/fng/?limit=1');
+    if (!res.ok) return { available: false, reason: `HTTP ${res.status}` };
+    const j = await res.json();
+    const d = j?.data?.[0];
+    if (!d) return { available: false, reason: 'empty response' };
+    const val = parseInt(d.value, 10);
+    const classification = d.value_classification || '';
+    return {
+      available: true,
+      value: val,
+      classification,
+      // normalized signal for AI context: -2 (extreme fear) .. +2 (extreme greed)
+      signal: val >= 75 ? 2 : val >= 50 ? 1 : val >= 25 ? 0 : -1,
+      updatedAt: d.timestamp ? new Date(parseInt(d.timestamp) * 1000).toISOString() : null
+    };
+  } catch (e) {
+    return { available: false, reason: e.message };
+  }
 }

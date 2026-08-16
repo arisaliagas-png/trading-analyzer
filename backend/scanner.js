@@ -79,7 +79,7 @@ function buildIndicatorContext(ind, symbol, timeframe) {
 async function scanAsset(symbol, scanId) {
   try {
     // Skip if a trade is already being tracked for this symbol
-    if (hasActiveTrade(symbol)) {
+    if (await hasActiveTrade(symbol)) {
       scannerLog.info({ symbol, scanId }, 'Skipping — active/pending trade already tracked');
       return null;
     }
@@ -112,7 +112,7 @@ async function scanAsset(symbol, scanId) {
     const isFresh = pivotAge <= MAX_PIVOT_AGE;
 
     if (!hasSetup || !hasDecentScore || !isFresh) {
-      removeSignalByInstrument(symbol);
+      await removeSignalByInstrument(symbol);
       const reason = !isFresh ? `stale swing pivot (${pivotAge} candles old)` : 'no valid setup';
       scannerLog.info({ symbol, scanId, strategy: engine.executionStrategy, score: engine.megaScore, pivotAge }, `Skipped — ${reason}`);
       return null;
@@ -210,7 +210,7 @@ Return ONLY valid JSON (no markdown, no extra text):
 
     if (!longOk && !shortOk) {
       scannerLog.warn({ symbol, scanId, direction: tradeDir, entry: idealEntry, sl: slVal, tp1: tp1Val }, 'Rejected — geometry invalid');
-      removeSignalByInstrument(symbol);
+      await removeSignalByInstrument(symbol);
       return null;
     }
 
@@ -221,7 +221,7 @@ Return ONLY valid JSON (no markdown, no extra text):
 
     if (rr < 1.0) {
       scannerLog.warn({ symbol, scanId, rr }, 'Rejected — R:R too low');
-      removeSignalByInstrument(symbol);
+      await removeSignalByInstrument(symbol);
       return null;
     }
 
@@ -282,7 +282,7 @@ Return ONLY valid JSON (no markdown, no extra text):
       };
 
       // Upsert into SQLite (locks original levels if symbol already exists)
-      upsertSignal(signal);
+      await upsertSignal(signal);
 
       // Register in trade tracker (same DB — idempotent via INSERT OR IGNORE)
       try {
@@ -305,7 +305,7 @@ Return ONLY valid JSON (no markdown, no extra text):
       return signal;
     } else {
       scannerLog.info({ symbol, scanId, status: aiResult.setupStatus, grade: aiResult.confidenceGrade }, 'Rejected by AI');
-      removeSignalByInstrument(symbol);
+      await removeSignalByInstrument(symbol);
     }
 
   } catch (e) {
@@ -344,13 +344,13 @@ export async function scanAllAssets() {
 // Returns all ACTIVE/PENDING trades from SQLite.
 // Marks isNew flag as cleared 5s after serving.
 // ─────────────────────────────────────────────
-export function getActiveSignals() {
-  const trades = getActiveTrades();
+export async function getActiveSignals() {
+  const trades = await getActiveTrades();
 
   // Schedule isNew flag clear (5s delay so frontend sees it once)
   trades
     .filter(t => t.isNew)
-    .forEach(t => setTimeout(() => clearIsNew(t.id), 5000));
+    .forEach(t => setTimeout(async () => { await clearIsNew(t.id); }, 5000));
 
   return trades;
 }
@@ -360,11 +360,11 @@ export function getActiveSignals() {
 // ─────────────────────────────────────────────
 let scanState = { isScanning: false, lastScanAt: null, lastScanDuration: null };
 
-export function getScanState() {
+export async function getScanState() {
   const cb = getCircuitBreakerState();
   return {
     ...scanState,
-    activeCount:    getActiveTrades().length,
+    activeCount:    await getActiveTrades().length,
     circuitBreaker: cb
   };
 }
@@ -374,8 +374,8 @@ export function getScanState() {
 // Loads existing signals from DB into memory state.
 // Does NOT auto-scan.
 // ─────────────────────────────────────────────
-export function startScanner() {
-  const count = getActiveTrades().length;
+export async function startScanner() {
+  const count = await getActiveTrades().length;
   scannerLog.info({ activeSignals: count }, 'Scanner ready — waiting for manual trigger');
 }
 
