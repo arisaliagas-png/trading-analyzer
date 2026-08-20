@@ -12,7 +12,73 @@ import { getLiveIndicators } from './indicators.js';
 import { analyzeChart }      from './aiProvider.js';
 import { aggregator }         from './heatmap.js';
 import { fetchAssetNews }     from './newsSearch.js';
+import { getLessonsFor }      from './db.js';
 import { scannerLog } from './logger.js';
+
+// ─────────────────────────────────────────────
+// LESSON-APPLICATION LAYER (hard veto)
+// ─────────────────────────────────────────────
+// The post-mortem loop records failed trades as free-text lessons in SQLite.
+// Those lessons are injected into the AI prompt (aiProvider.js ASSET CONSTRAINTS)
+// but the AI frequently ignores them. This function enforces them as HARD rules
+// derived from the same metrics the lessons describe (volume, squeeze, orderbook),
+// so a setup that contradicts a recorded failure mode is downgraded to WAIT.
+//
+// Rules (data-driven, mirror the recorded lessons #4/#5/#6/#7/#10/#11/#12):
+//   R1 Volume:  relativeVolume.ratio < 0.3  → veto (any direction)
+//   R2 Squeeze: squeeze.state==='RELEASED' && squeeze.direction opposes tradeDir → veto
+//   R3 Bookmap: liveCvdBias opposes tradeDir (SHORT + BULL bookmap, or LONG + BEAR) → veto
+function applyLessonVeto({ engine, tradeDir, liveCvdBias }) {
+  const violated = [];
+  const reasons = [];
+
+  // Only enforce if we have at least one recorded lesson for this symbol+direction
+  // (the lesson DB is the gate — no lesson, no veto; we don't block on first encounter)
+  let hasLesson = false;
+  try {
+    const dir = tradeDir === 'LONG' ? 'LONG' : 'SHORT';
+    const lessons = getLessonsFor(engine.symbol || '', dir);
+    hasLesson = Array.isArray(lessons) && lessons.length > 0;
+  } catch { /* DB not ready — skip veto */ }
+
+  if (!hasLesson) return { veto: false, reason: null, violatedRules: [] };
+
+  // R1 — Volume Engine too weak for continuation
+  const volRatio = engine.relativeVolume?.ratio ?? 1;
+  if (volRatio < 0.3) {
+    violated.push('R1_VOLUME');
+    reasons.push(`Volume Engine ${volRatio.toFixed(2)}x < 0.3x (weak continuation — lesson #11)`);
+  }
+
+  // R2 — Squeeze already released against our direction
+  const sq = engine.squeeze || {};
+  if (sq.state === 'RELEASED') {
+    const sqDir = sq.direction; // BULLISH / BEARISH / NEUTRAL
+    const opposes = (tradeDir === 'LONG' && sqDir === 'BEARISH') ||
+                    (tradeDir === 'SHORT' && sqDir === 'BULLISH');
+    if (opposes) {
+      violated.push('R2_SQUEEZE');
+      reasons.push(`Squeeze RELEASED+${sqDir} opposes ${tradeDir} (lesson #4/#6/#7/#10/#12)`);
+    }
+  }
+
+  // R3 — Live order-book flow opposes direction
+  if (liveCvdBias) {
+    const bookOpposes = (tradeDir === 'LONG' && liveCvdBias === 'BEAR') ||
+                        (tradeDir === 'SHORT' && liveCvdBias === 'BULL');
+    if (bookOpposes) {
+      violated.push('R3_BOOKMAP');
+      reasons.push(`Live order-book CVD bias ${liveCvdBias} opposes ${tradeDir} (lesson #5)`);
+    }
+  }
+
+  if (violated.length === 0) return { veto: false, reason: null, violatedRules: [] };
+  return {
+    veto: true,
+    reason: `LESSON VETO [${violated.join(',')}]: ${reasons.join('; ')}`,
+    violatedRules: violated
+  };
+}
 import { calcPositionSize, getCircuitBreakerState } from './riskManager.js';
 import {
   upsertSignal,
@@ -266,10 +332,23 @@ Return ONLY valid JSON (no markdown, no extra text):
       signalRr = newRr;
     }
 
+    // 4c. LESSON-APPLICATION LAYER (hard veto)
+    // If this symbol+direction has recorded failures, enforce the lessons as
+    // data-driven rules. A violation downgrades the setup to PENDING (WAIT) so it
+    // is NOT auto-executed, but stays in the DB for re-scan when conditions clear.
+    const veto = applyLessonVeto({ engine, tradeDir, liveCvdBias });
+    let lessonVetoReason = null;
+    if (veto.veto) {
+      lessonVetoReason = veto.reason;
+      scannerLog.warn({ symbol, scanId, direction: tradeDir, violated: veto.violatedRules }, 'LESSON VETO — downgrading to PENDING');
+    }
+
     // 5. Accept grades ≥ C and statuses ACTIVE/PENDING.
     // WAIT is treated as PENDING (kept in DB for re-scan) — the engine isn't
     // ready yet but the setup is real, so we don't delete it.
-    const effectiveStatus = aiResult.setupStatus === 'WAIT' ? 'PENDING' : aiResult.setupStatus;
+    const effectiveStatus = veto.veto
+      ? 'PENDING'
+      : (aiResult.setupStatus === 'WAIT' ? 'PENDING' : aiResult.setupStatus);
     if (aiResult.setupStatus !== 'WAIT' && aiResult.confidenceGrade !== 'D' || (aiResult.setupStatus === 'WAIT' && aiResult.confidenceGrade !== 'D')) {
 
       // ── [4A] Deterministic position sizing (no AI involvement) ──
@@ -292,7 +371,7 @@ Return ONLY valid JSON (no markdown, no extra text):
         status:       effectiveStatus,
         grade:        aiResult.confidenceGrade,
         pct:          aiResult.confidencePct,
-        reasoning:    aiResult.reasoning,
+        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (aiResult.reasoning || ''),
         timestamp:    new Date().toISOString(),
         // ── Risk fields (server-computed, not AI) ──
         positionSize: sizing.positionSize,
