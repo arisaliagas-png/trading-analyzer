@@ -267,10 +267,16 @@ app.post('/api/analyze', upload.single('chart'), async (req, res) => {
     if (pair) {
       try {
         const snap = aggregator.running && aggregator.midPrice > 0 ? aggregator.getSnapshot() : null;
-        const whaleWalls = snap ? snap.whaleWalls : [];
+        const whaleWalls = snap ? snap.stableWhaleWalls && snap.stableWhaleWalls.length ? snap.stableWhaleWalls : (snap.whaleWalls || []) : [];
         const absorption = snap ? snap.footprint?.absorption : null;
+        // Live order-book CVD bias → feeds the engine so it SEES real flow (not just candle geometry)
+        let liveCvdBias = null;
+        if (snap && snap.moneyFlow && snap.moneyFlow.bias) {
+          const b = snap.moneyFlow.bias; // 'buy' | 'sell' | 'neutral'
+          liveCvdBias = b === 'buy' ? 'BULL' : b === 'sell' ? 'BEAR' : null;
+        }
         
-        const ind = await getLiveIndicators(pair, timeframe || '1h', whaleWalls, absorption, hints);
+        const ind = await getLiveIndicators(pair, timeframe || '1h', whaleWalls, absorption, hints, liveCvdBias, newsContext?.sentimentScore ?? null);
         if (ind.available) {
           const mtfSection = ind.mtfScore
             ? `\nMULTI-TIMEFRAME BIAS (EMA200): ${ind.mtfDetails} | MTF Score: ${ind.mtfScore}`
@@ -384,7 +390,15 @@ app.post('/api/second-opinion', upload.single('chart'), async (req, res) => {
     let indicatorContext = null;
     if (pair) {
       try {
-        const ind = await getLiveIndicators(pair, timeframe || '1h');
+        // Feed live order-book flow into the engine for the second opinion too
+        const snap = aggregator.running && aggregator.midPrice > 0 ? aggregator.getSnapshot() : null;
+        const soWhaleWalls = snap ? (snap.stableWhaleWalls && snap.stableWhaleWalls.length ? snap.stableWhaleWalls : (snap.whaleWalls || [])) : [];
+        let soLiveCvdBias = null;
+        if (snap && snap.moneyFlow && snap.moneyFlow.bias) {
+          const b = snap.moneyFlow.bias;
+          soLiveCvdBias = b === 'buy' ? 'BULL' : b === 'sell' ? 'BEAR' : null;
+        }
+        const ind = await getLiveIndicators(pair, timeframe || '1h', soWhaleWalls, null, '', soLiveCvdBias, null);
         if (ind.available) {
           const mtfSection = ind.mtfScore
             ? `\nMULTI-TIMEFRAME BIAS (EMA200): ${ind.mtfDetails} | MTF Score: ${ind.mtfScore}`

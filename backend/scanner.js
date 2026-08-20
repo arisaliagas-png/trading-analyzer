@@ -85,7 +85,24 @@ async function scanAsset(symbol, scanId) {
     }
 
     // 1. Fetch live indicators + ARIS engine
-    const ind = await getLiveIndicators(symbol, SCAN_TIMEFRAME);
+    // Pull live order-book context (whale walls + CVD bias) from the running
+    // heatmap aggregator so the engine SEES real flow, not just candle geometry.
+    let liveWhaleWalls = [];
+    let liveCvdBias = null;
+    try {
+      const snap = aggregator.getSnapshot();
+      if (snap && snap.stableWhaleWalls && snap.stableWhaleWalls.length) {
+        liveWhaleWalls = snap.stableWhaleWalls;
+      } else if (snap && snap.whaleWalls && snap.whaleWalls.length) {
+        liveWhaleWalls = snap.whaleWalls;
+      }
+      if (snap && snap.moneyFlow && snap.moneyFlow.bias) {
+        const b = snap.moneyFlow.bias; // 'buy' | 'sell' | 'neutral'
+        liveCvdBias = b === 'buy' ? 'BULL' : b === 'sell' ? 'BEAR' : null;
+      }
+    } catch { /* aggregator not ready — fall back to candle-derived bias */ }
+
+    const ind = await getLiveIndicators(symbol, SCAN_TIMEFRAME, liveWhaleWalls, null, '', liveCvdBias, newsContext?.sentimentScore ?? null);
     if (!ind.available || !ind.aris) return null;
 
     const engine = ind.aris;
@@ -142,7 +159,10 @@ ENGINE SNAPSHOT:
 - CVD Bias: ${engine.cvdBias} | UFO: ${engine.ufoScore?.toFixed(0)}%
 - Squeeze: ${engine.squeeze?.state} / ${engine.squeeze?.direction}
 - Whale Absorption: ${engine.whaleAbsorption?.signal ?? 'NONE'}
-- Indicator Data:
+|- Market Structure: ${engine.structure?.trend ?? 'N/A'} (BOS: ${engine.structure?.bos ?? false}, CHoCH: ${engine.structure?.choch ?? false})
+|- Live Order-Book CVD Bias: ${liveCvdBias ?? 'N/A (fallback to candle-derived)'}
+|- Real-News Sentiment: ${newsContext?.sentimentScore != null ? (newsContext.sentimentScore > 0.15 ? 'BULLISH' : newsContext.sentimentScore < -0.15 ? 'BEARISH' : 'NEUTRAL') : 'N/A'}
+|- Indicator Data:
 ${ind.arisContext ?? ''}
 
 TASK:

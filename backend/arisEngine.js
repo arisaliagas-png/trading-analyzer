@@ -547,6 +547,72 @@ function detectSwings(highs, lows, lookback = 10) {
   return { swingHigh, swingLow, swingHighIndex, swingLowIndex };
 }
 
+// ─── Market Structure: BOS / CHoCH / Trend (SMC) ───────────────────────────────
+// Detects the recent alternating swing sequence and classifies market structure
+// the way an institutional SMC desk reads it:
+//   - HH / HL  → uptrend
+//   - LH / LL  → downtrend
+//   - BOS      → Break of Structure (price takes the prior opposite pivot)
+//   - CHoCH    → Change of Character (price breaks the most recent counter-pivot,
+//                signalling a probable trend flip)
+// Returns { trend, bos, choch, swings[], lastSwingHigh, lastSwingLow }.
+// Pure function — does not mutate inputs. Safe to call from computeArisScore.
+function detectMarketStructure(highs, lows, closes, lookback = 5) {
+  const n = highs.length;
+  if (n < lookback * 2 + 2) {
+    return { trend: 'RANGE', bos: false, choch: false, swings: [], lastSwingHigh: null, lastSwingLow: null };
+  }
+
+  // Collect ALL recent alternating pivots (most-recent first)
+  const swings = []; // { type:'H'|'L', price, index }
+  for (let i = n - lookback - 1; i >= lookback; i--) {
+    let isHigh = true;
+    for (let j = i - lookback; j <= i + lookback; j++) {
+      if (j !== i && highs[j] > highs[i]) { isHigh = false; break; }
+    }
+    if (isHigh) { swings.push({ type: 'H', price: highs[i], index: i }); continue; }
+
+    let isLow = true;
+    for (let j = i - lookback; j <= i + lookback; j++) {
+      if (j !== i && lows[j] < lows[i]) { isLow = false; break; }
+    }
+    if (isLow) { swings.push({ type: 'L', price: lows[i], index: i }); }
+  }
+
+  // Keep only the most recent ~6 pivots for structure read
+  const recent = swings.slice(0, 6);
+  if (recent.length < 3) {
+    return { trend: 'RANGE', bos: false, choch: false, swings: recent, lastSwingHigh: null, lastSwingLow: null };
+  }
+
+  // Classify trend from the most recent 2 pivots of each type.
+  // Walk the recent swing list (most-recent-first) and pick the first H and L,
+  // then the NEXT distinct H and L after them.
+  const hIdx = recent.findIndex(s => s.type === 'H');
+  const lIdx = recent.findIndex(s => s.type === 'L');
+  const lastH = hIdx >= 0 ? recent[hIdx] : null;
+  const lastL = lIdx >= 0 ? recent[lIdx] : null;
+  const prevH = hIdx >= 0 ? recent.slice(hIdx + 1).find(s => s.type === 'H') || null : null;
+  const prevL = lIdx >= 0 ? recent.slice(lIdx + 1).find(s => s.type === 'L') || null : null;
+
+  let trend = 'RANGE';
+  if (lastH && prevH && lastH.price > prevH.price && lastL && prevL && lastL.price > prevL.price) trend = 'UP';
+  else if (lastH && prevH && lastH.price < prevH.price && lastL && prevL && lastL.price < prevL.price) trend = 'DOWN';
+
+  // BOS: price has exceeded the prior pivot in the trend direction
+  const currentPrice = closes[closes.length - 1];
+  let bos = false;
+  if (trend === 'UP' && lastH && currentPrice > lastH.price) bos = true;
+  if (trend === 'DOWN' && lastL && currentPrice < lastL.price) bos = true;
+
+  // CHoCH: counter-pivot broken (e.g. uptrend breaks last swing low)
+  let choch = false;
+  if (trend === 'UP' && lastL && currentPrice < lastL.price) choch = true;
+  if (trend === 'DOWN' && lastH && currentPrice > lastH.price) choch = true;
+
+  return { trend, bos, choch, swings: recent, lastSwingHigh: lastH || null, lastSwingLow: lastL || null };
+}
+
 function computeATR(highs, lows, closes, period = 14) {
   if (closes.length < period + 1) return (closes[closes.length - 1] || 0) * 0.01; // fallback
   let trSum = 0;
@@ -599,27 +665,57 @@ function detectOrderBlock(opens, highs, lows, closes, lookback = 20) {
 }
 
 function calculateExecutionSetup({
-  swingHigh, swingLow, currentPrice, highs, lows, opens, closes,
-  regime, squeezeState, cvdBias, whaleWalls = [], absorption = null, smTrap = null
+  swingHigh, swingLow, swingHighIndex = null, swingLowIndex = null, currentPrice, highs, lows, opens, closes,
+  regime, squeezeState, cvdBias, whaleWalls = [], absorption = null, smTrap = null, forceDirection = null
 }) {
   if (swingHigh <= swingLow) return null;
 
   const range = swingHigh - swingLow;
+  // Direction bias for OTE pullback:
+  //  - If the most recent swing is a HIGH (price rallied then pulls back) -> LONG OTE (buy the pullback)
+  //  - If the most recent swing is a LOW (price dropped then bounces)   -> SHORT OTE (sell the bounce)
   // Override trend bias if a Smart Money Trap is active (Bear Trap dictates LONG setup, Bull Trap dictates SHORT setup)
-  let isUpward = currentPrice > (swingHigh + swingLow) / 2; // general direction bias
-  if (smTrap === 'BEAR_TRAP') {
+  // forceDirection (from Mega Score) has highest priority — keeps OTE zone consistent with the scored direction.
+  let isUpward;
+  if (forceDirection === 'LONG') {
+    isUpward = true;
+  } else if (forceDirection === 'SHORT') {
+    isUpward = false;
+  } else if (smTrap === 'BEAR_TRAP') {
     isUpward = true;
   } else if (smTrap === 'BULL_TRAP') {
     isUpward = false;
+  } else if (swingHighIndex != null && swingLowIndex != null) {
+    isUpward = swingHighIndex > swingLowIndex; // most-recent swing is the high -> uptrend pullback -> LONG
+  } else {
+    isUpward = currentPrice > (swingHigh + swingLow) / 2; // fallback
   }
   const atr = computeATR(highs, lows, closes, 14);
 
   // Helper to format zone output
-  const formatZone = (price, low, high) => ({
-    price: parseFloat(price.toFixed(5)),
-    low: parseFloat(Math.min(low, high).toFixed(5)),
-    high: parseFloat(Math.max(low, high).toFixed(5))
-  });
+  // Dynamic decimal precision: tighter rounding for low-priced assets so the
+  // OTE zone never appears to spill past its Fib bounds due to fixed toFixed(5).
+  // Round the displayed zone INWARD (high down, low up) so the published zone
+  // is always strictly inside the computed Fib bounds.
+  const decimalsFor = (v) => {
+    const a = Math.abs(v);
+    if (a >= 1000) return 2;
+    if (a >= 1) return 4;
+    if (a >= 0.01) return 6;
+    return 8;
+  };
+  const formatZone = (price, low, high) => {
+    const d = decimalsFor(price);
+    const f = Math.pow(10, d);
+    const roundIn = (v, dir) => dir > 0
+      ? Math.ceil(v * f) / f   // low: round up so zone stays >= Fib bound
+      : Math.floor(v * f) / f; // high: round down so zone stays <= Fib bound
+    return {
+      price: parseFloat(price.toFixed(d)),
+      low: parseFloat(roundIn(Math.min(low, high), 1).toFixed(d)),
+      high: parseFloat(roundIn(Math.max(low, high), -1).toFixed(d))
+    };
+  };
 
   const f = (val) => {
     if (val == null) return '—';
@@ -740,19 +836,15 @@ function calculateExecutionSetup({
 
   if (isUpward) {
     const macroIdeal   = swingHigh - range * 0.666;       // Macro Fib 0.666
-    const localIdeal   = localHigh - localRange * 0.618;  // Local Fib 0.618 (shallower pullback)
+    const localIdeal   = swingHigh - range * 0.618;        // Local Fib 0.618 (shallower pullback)
     const bidWall      = findWallAnchor('bid');
     const obBase       = ob ? ob.low : null;              // OB body low = demand base
     const obTop        = ob ? ob.high : null;             // OB body high = demand ceiling
 
-    // Zone Low: prefer OB base, fallback to bid wall, fallback to local Fib 0.786
-    const zoneLow  = obBase    ? Math.max(obBase, localHigh - localRange * 0.786)
-                   : bidWall   ? Math.max(bidWall.price, localHigh - localRange * 0.786)
-                   : localHigh - localRange * 0.786;
-
-    // Zone High: prefer OB top, fallback to local Fib 0.618
-    const zoneHigh = obTop     ? Math.min(obTop, localHigh - localRange * 0.500)
-                   : localHigh - localRange * 0.500;
+    // LONG OTE zone: retracement DOWN of the up-move, BELOW swingHigh (standard ICT 0.618-0.786)
+    // Zone is anchored to the swing structure; OB/walls only refine the note, never extend past the Fib bounds.
+    const zoneHigh = swingHigh - range * 0.618;
+    const zoneLow  = swingHigh - range * 0.786;
 
     // Ideal entry: midpoint of the zone (not deep macro fib)
     const idealPrice = (zoneLow + zoneHigh) / 2;
@@ -796,12 +888,10 @@ function calculateExecutionSetup({
     const obTop        = ob ? ob.high : null;
     const obBase       = ob ? ob.low : null;
 
-    const zoneHigh = obTop    ? Math.min(obTop, localLow + localRange * 0.786)
-                   : askWall  ? Math.min(askWall.price, localLow + localRange * 0.786)
-                   : localLow + localRange * 0.786;
-
-    const zoneLow  = obBase   ? Math.max(obBase, localLow + localRange * 0.500)
-                   : localLow + localRange * 0.500;
+    // SHORT OTE zone: retracement UP of the down-move, ABOVE swingLow (standard ICT 0.618-0.786)
+    // Zone is anchored to the swing structure; OB/walls only refine the note, never extend past the Fib bounds.
+    const zoneHigh = swingLow + range * 0.786;
+    const zoneLow  = swingLow + range * 0.618;
 
     const idealPrice = (zoneLow + zoneHigh) / 2;
 
@@ -898,7 +988,7 @@ function computeIDC(mfiLast, ufBullScore, ufBearScore) {
 // Each of the 25 scored conditions contributes 0 or 1 point.
 // Direction is determined by which side (long vs short) has more points.
 
-function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfiLast, cmfLast, cvdBias, fpBias, zScore, chop, adxVal, smTrap, benfordOk, relVol }) {
+function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfiLast, cmfLast, cvdBias, fpBias, zScore, chop, adxVal, smTrap, benfordOk, relVol, newsSentiment, structureTrend }) {
   // 25 binary conditions (scored for the LONG direction; inverse for SHORT)
   const conds = [
     // UFO Fusion block (6 signals → 6 pts)
@@ -959,6 +1049,12 @@ function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfi
 
     // CVD + FP agree
     cvdBias === 'BULL' && fpBias > 0 ? 1 : 0,
+
+    // Real-news sentiment (CryptoPanic/CoinGecko): +1 LONG if clearly bullish
+    (newsSentiment != null && newsSentiment > 0.15) ? 1 : 0,
+
+    // Market Structure (BOS/CHoCH trend read): +1 LONG if uptrend
+    (structureTrend === 'UP') ? 1 : 0,
   ];
 
   const longScore = conds.reduce((a, b) => a + b, 0); // Bull conditions satisfied
@@ -988,13 +1084,19 @@ function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfi
     ufoNorm === -100 ? 1 : 0,
     hybridLast != null && wt1Last != null && hybridLast < 0 && wt1Last < 0 ? 1 : 0,
     mfiLast != null && cmfLast != null && mfiLast < 50 && cmfLast < 0 ? 1 : 0,
+
+    // Real-news sentiment (CryptoPanic/CoinGecko): +1 SHORT if clearly bearish
+    (newsSentiment != null && newsSentiment < -0.15) ? 1 : 0,
+
+    // Market Structure (BOS/CHoCH trend read): +1 SHORT if downtrend
+    (structureTrend === 'DOWN') ? 1 : 0,
   ];
   const shortScore = bearConds.reduce((a, b) => a + b, 0);
 
   // Dominant direction and combined MEGA SCORE
   const direction = longScore >= shortScore ? 'LONG' : 'SHORT';
   const megaScore = direction === 'LONG' ? longScore : shortScore;
-  const maxScore = 25; // Phase 1 maximum
+  const maxScore = 28; // Phase 1 maximum (25 base + 1 news + 1 structure per side)
 
   return { megaScore, maxScore, longScore, shortScore, direction };
 }
@@ -1057,6 +1159,7 @@ export function computeArisScore({ opens, highs, lows, closes, volumes }) {
 
   // 5. Pattern detection & Swing/OTE analysis
   const swings = detectSwings(highs, lows, 10);
+  const structure = detectMarketStructure(highs, lows, closes, 5);
   const smTrap = detectSMTrap(opens, highs, lows, closes, swings.swingHigh, swings.swingLow);
   const benford = checkBenford(volumes);
   const currentPrice = closes[closes.length - 1];
@@ -1064,7 +1167,9 @@ export function computeArisScore({ opens, highs, lows, closes, volumes }) {
   // Compute a preliminary OTE (RANGE fallback) for the oteRetest flag only.
   // The real execution setup (with regime / whale walls) is computed in finalizeArisScore.
   const ote = calculateExecutionSetup({
-    swingHigh: swings.swingHigh, swingLow: swings.swingLow, currentPrice,
+    swingHigh: swings.swingHigh, swingLow: swings.swingLow,
+    swingHighIndex: swings.swingHighIndex, swingLowIndex: swings.swingLowIndex,
+    currentPrice,
     highs, lows, opens, closes,
     regime: 'RANGE', squeezeState: null, cvdBias: null, whaleWalls: [],
     smTrap
@@ -1140,6 +1245,7 @@ export function computeArisScore({ opens, highs, lows, closes, volumes }) {
     ufBearScore: ufScoreResult.bearScore,
     ufCondBitmap: ufScoreResult.condBitmap,
     swings,
+    structure,
     ote,
     oteRetest,
     squeeze,
@@ -1148,7 +1254,12 @@ export function computeArisScore({ opens, highs, lows, closes, volumes }) {
   };
 }
 
-export function finalizeArisScore(raw, mtfScoreStr, extAdx = null, extMacdHist = null, whaleWalls = [], absorption = null) {
+export function finalizeArisScore(raw, mtfScoreStr, extAdx = null, extMacdHist = null, whaleWalls = [], absorption = null, liveCvdBias = null, newsSentiment = null) {
+  // liveCvdBias: 'BULL'|'BEAR'|null — live order-book CVD bias from the heatmap aggregator.
+  //   When present it OVERRIDES the candle-derived raw.cvdBias so the engine "sees" live flow.
+  // newsSentiment: number [-1..+1] — aggregated real-news sentiment (CryptoPanic/CoinGecko).
+  //   Positive tilts toward LONG, negative toward SHORT in the Mega Score.
+  const cvdBias = liveCvdBias || raw.cvdBias;
   // Parse MTF score number from string like "+1/4" or "-3/3"
   let mtfScoreNum = null;
   if (mtfScoreStr) {
@@ -1168,7 +1279,7 @@ export function finalizeArisScore(raw, mtfScoreStr, extAdx = null, extMacdHist =
     stochKLast: raw.stochRsiK,
     mfiLast: raw.mfi,
     cmfLast: raw.cmf,
-    cvdBias: raw.cvdBias,
+    cvdBias: cvdBias,
     macdHist,
     adxVal,
     chop: raw.choppiness,
@@ -1187,6 +1298,8 @@ export function finalizeArisScore(raw, mtfScoreStr, extAdx = null, extMacdHist =
   const executionSetup = raw.swings ? calculateExecutionSetup({
     swingHigh:    raw.swings.swingHigh,
     swingLow:     raw.swings.swingLow,
+    swingHighIndex: raw.swings.swingHighIndex,
+    swingLowIndex:  raw.swings.swingLowIndex,
     currentPrice: ohlcv.closes?.length
       ? ohlcv.closes[ohlcv.closes.length - 1]
       : (raw.swings.swingHigh + raw.swings.swingLow) / 2,
@@ -1196,7 +1309,7 @@ export function finalizeArisScore(raw, mtfScoreStr, extAdx = null, extMacdHist =
     closes: ohlcv.closes || [],
     regime,
     squeezeState: raw.squeeze?.state ?? null,
-    cvdBias: raw.cvdBias,
+    cvdBias: cvdBias,
     whaleWalls,
     absorption,
     smTrap: raw.smTrap
@@ -1210,15 +1323,44 @@ export function finalizeArisScore(raw, mtfScoreStr, extAdx = null, extMacdHist =
     macdHist,
     mfiLast: raw.mfi,
     cmfLast: raw.cmf,
-    cvdBias: raw.cvdBias,
+    cvdBias: cvdBias,
     fpBias: raw.fpBias,
     zScore: raw.zScore,
     chop: raw.choppiness,
     adxVal,
     smTrap: raw.smTrap,
     benfordOk: raw.benfordOk,
-    relVol: raw.relativeVolume
+    relVol: raw.relativeVolume,
+    newsSentiment,
+    structureTrend: raw.structure?.trend || null
   });
+
+  // Keep OTE zone consistent with the scored direction:
+  // if the Mega Score direction disagrees with the execution setup direction,
+  // recompute the execution setup forcing the scored direction.
+  let executionSetupFinal = executionSetup;
+  if (executionSetup && direction && executionSetup.direction !== direction) {
+    executionSetupFinal = raw.swings ? calculateExecutionSetup({
+      swingHigh:    raw.swings.swingHigh,
+      swingLow:     raw.swings.swingLow,
+      swingHighIndex: raw.swings.swingHighIndex,
+      swingLowIndex:  raw.swings.swingLowIndex,
+      currentPrice: ohlcv.closes?.length
+        ? ohlcv.closes[ohlcv.closes.length - 1]
+        : (raw.swings.swingHigh + raw.swings.swingLow) / 2,
+      highs:  ohlcv.highs  || [],
+      lows:   ohlcv.lows   || [],
+      opens:  ohlcv.opens  || [],
+      closes: ohlcv.closes || [],
+      regime,
+      squeezeState: raw.squeeze?.state ?? null,
+      cvdBias: raw.cvdBias,
+      whaleWalls,
+      absorption,
+      smTrap: raw.smTrap,
+      forceDirection: direction
+    }) : executionSetup;
+  }
 
   const { confidencePct, confidenceGrade } = computeConfidence(megaScore, maxScore, regime, threshold, mtfScoreNum);
 
@@ -1248,9 +1390,9 @@ export function finalizeArisScore(raw, mtfScoreStr, extAdx = null, extMacdHist =
     direction,
     confidencePct,
     confidenceGrade,
-    ote: executionSetup,
-    executionStrategy: executionSetup?.strategy ?? 'PULLBACK_OTE',
-    executionNote: executionSetup?.note ?? '📐 PULLBACK OTE (Waiting for Fibonacci retracement retest)',
+    ote: executionSetupFinal,
+    executionStrategy: executionSetupFinal?.strategy ?? 'PULLBACK_OTE',
+    executionNote: executionSetupFinal?.note ?? '📐 PULLBACK OTE (Waiting for Fibonacci retracement retest)',
   };
 }
 

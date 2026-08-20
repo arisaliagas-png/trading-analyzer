@@ -29,7 +29,7 @@ function normalizeSymbol(sym) {
  * Fetch historical candles and calculate technical indicators.
  * Returns a clean object containing indicator readings.
  */
-export async function getLiveIndicators(symbol, timeframe, whaleWalls = [], absorption = null, hints = '') {
+export async function getLiveIndicators(symbol, timeframe, whaleWalls = [], absorption = null, hints = '', liveCvdBias = null, newsSentiment = null) {
   const binanceSymbol = normalizeSymbol(symbol);
   const interval = normalizeTimeframe(timeframe);
 
@@ -209,7 +209,7 @@ export async function getLiveIndicators(symbol, timeframe, whaleWalls = [], abso
     const mtfScoreStr = mtfValid ? `${mtfScore > 0 ? '+' : ''}${mtfScore}/${totalChecks}` : null;
     const adxVal = latestAdx ? latestAdx.adx : null;
     const macdHist = latestMacd ? latestMacd.histogram : null;
-    const arisResult = finalizeArisScore(arisRaw, mtfScoreStr, adxVal, macdHist, whaleWalls, absorption);
+    const arisResult = finalizeArisScore(arisRaw, mtfScoreStr, adxVal, macdHist, whaleWalls, absorption, liveCvdBias, newsSentiment);
     const arisContext = formatArisContext(arisResult);
     // ──────────────────────────────────────────────────────────────────────────
 
