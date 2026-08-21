@@ -196,7 +196,8 @@ async function scanAsset(symbol, scanId) {
       }
     }
 
-    const MAX_PIVOT_AGE = 24; // 24h on 1h chart — allows slow-grind setups (pivot 11-22 candles old)
+    const MAX_PIVOT_AGE = 40; // 40h on 1h chart — allows slow-grind setups (pivot up to ~40 candles old).
+                              // Was 24; too strict — a pivot just 1 candle older (25) wrongly killed valid setups.
     const isFresh = pivotAge <= MAX_PIVOT_AGE;
 
     if (!hasSetup || !hasDecentScore || !isFresh) {
@@ -363,8 +364,12 @@ Return ONLY valid JSON (no markdown, no extra text):
         effectiveStatus
       );
 
+      // Deterministic id (symbol+direction) so repeated scans UPDATE the
+      // same row instead of inserting duplicates. The Supabase upsert uses
+      // onConflict:'id', and the SQLite upsert keys off instrument+direction,
+      // so a stable id guarantees both backends dedupe correctly.
       const signal = {
-        id:           `${symbol}_${Date.now()}`,
+        id:           `${symbol}_${tradeDir}`,
         symbol,
         timeframe:    SCAN_TIMEFRAME,
         direction:    tradeDir,
