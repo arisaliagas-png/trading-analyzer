@@ -4,6 +4,27 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>🧙 AI Trading Analyzer</title>
+    <script>
+      // Surface runtime errors instead of a blank white screen.
+      // Registered BEFORE the module script so it catches load-time crashes.
+      // Filters out browser-extension noise (e.g. MetaMask "Cannot redefine property: ethereum").
+      window.__errs = [];
+      function showErr(msg) {
+        if (msg.includes('chrome-extension://') || msg.includes('ethereum')) return; // ignore extension noise
+        window.__errs.push(msg);
+        var el = document.getElementById('root');
+        if (!el) return;
+        el.innerHTML = '<pre style="color:#f55;background:#111;padding:16px;white-space:pre-wrap;font-family:monospace;border:1px solid #552222;border-radius:8px;">'
+          + window.__errs.map(function(m){return 'JS Error: ' + m;}).join('\n\n') + '</pre>';
+      }
+      window.addEventListener('error', function(e) {
+        showErr((e.message || e.error) + (e.filename ? ' @ ' + e.filename + ':' + e.lineno : ''));
+      });
+      window.addEventListener('unhandledrejection', function(e) {
+        var r = e.reason && e.reason.message ? e.reason.message : e.reason;
+        showErr('Promise rejection: ' + r);
+      });
+    </script>
   </head>
   <body>
     <div id="root"></div>

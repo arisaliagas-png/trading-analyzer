@@ -1,0 +1,1891 @@
+import React, { useState, useEffect, useRef } from 'react';
+
+const TRANSLATIONS = {
+  el: {
+    title: "🧙 Αναλυτής Αγοράς AI",
+    subtitle: "Ανέβασε γράφημα συναλλαγής και λάβε άμεσα ένα ολοκληρωμένο πλάνο με AI",
+    analyzer: "📊 Ανάλυση",
+    history: "🕐 Ιστορικό",
+    heatmap: "🌡️ Ζωντανό Heatmap",
+    capital: "💰 Capital Flow",
+    scanner: "🔍 Scanner",
+    analytics: "📊 Στατιστικά",
+    coach: "💬 AI Coach",
+    early: "🔎 Early Signals",
+    analyticsTitle: "📊 Στατιστικά Απόδοσης Συστήματος ARIS",
+    winRate: "Ποσοστό Επιτυχίας",
+    expectancy: "Προσδοκώμενο Κέρδος",
+    circuitBreaker: "Διακόπτης Ασφαλείας",
+    tripped: "ΕΝΕΡΓΟΠΟΙΗΘΗΚΕ (Κλειδωμένο)",
+    operational: "ΣΕ ΛΕΙΤΟΥΡΓΙΑ",
+    consecutiveLosses: "Σερί Αποτυχιών",
+    resetBreaker: "Επαναφορά Διακόπτη",
+    positionSize: "Υπολογισμός Θέσης",
+    riskReward: "Ρίσκο/Απόδοση (R:R)",
+    theoreticalRR: "Θεωρητικό R:R (Μ.Ο.)",
+    realizedRR: "Πραγματικό R:R (Μ.Ο.)",
+    directionStats: "Απόδοση ανά Κατεύθυνση",
+    uploadDrag: "Σύρε γράφημα εδώ",
+    uploadOr: "ή κλικ για επιλογή αρχείου",
+    uploadLoaded: "✓ Γράφημα Φορτώθηκε",
+    uploadReplace: "Κλικ εδώ για αντικατάσταση",
+    uploadHints: "Εστίαση Δεικτών (Προαιρετικό)",
+    uploadHintsPlaceholder: "π.χ. απόκλιση RSI, διπλό κατώτατο",
+    uploadEmpty: "Ανέβασε γράφημα αριστερά για προεπισκόπηση",
+    timeframeLabel: "Χρονικό Πλαίσιο (Αυτόματο αν επιλεγεί Auto)",
+    timeframeAuto: "🤖 Αυτόματο — Ο AI το διαβάζει από το γράφημα",
+    tvImport: "🔗 Εισαγωγή από TradingView",
+    tvPlaceholder: "Επικόλλησε link στιγμιοτύπου (Κοινοποίηση → Αντιγραφή link εικόνας)",
+    tvFetch: "Λήψη Γραφήματος",
+    tvFetching: "Φόρτωση...",
+    tvError: "Χρησιμοποίησε το TradingView \"Κοινοποίηση → Αντιγραφή link εικόνας γραφήματος\" για να λάβεις URL τύπου /x/.",
+    btnAnalyze: "Εκτέλεση Ανάλυσης AI",
+    btnAnalyzing: "Ανάλυση Γραφήματος...",
+    btnSecondOpinion: "🔍 Δεύτερη Γνώμη (Αντίθετη Άποψη)",
+    btnGettingOpinion: "Λήψη Δεύτερης Γνώμης...",
+    methodology: "Εφαρμόστηκε",
+    strengthScore: "Βαθμός Ισχύος",
+    methodologyRationale: "Αιτιολόγηση Μεθοδολογίας:",
+    entryTrigger: "Σημείο Εισόδου",
+    stopLoss: "Stop Loss (SL)",
+    takeProfit: "Στόχος Κέρδους (TP1)",
+    secondaryTargets: "Δευτερεύοντες Στόχοι:",
+    detectedPatterns: "Ανιχνευμένα Μοτίβα & Δείκτες:",
+    aiReasoning: "Αιτιολόγηση AI:",
+    loadingMsg: "Εκτέλεση Μηχανής Ανάλυσης...",
+    loadingSubMsg: "Εντοπισμός επιπέδων, order blocks και κυματικών δομών",
+    soConfirmed: "ΕΠΙΒΕΒΑΙΩΘΗΚΕ",
+    soRejected: "ΑΠΟΡΡΙΦΘΗΚΕ",
+    soCaution: "ΠΡΟΣΟΧΗ",
+    soChallengePoints: "⚡ Σημεία Αμφισβήτησης:",
+    soAlternative: "Εναλλακτικό Σενάριο:",
+    soConfidence: "Αξιοπιστία",
+    historyTitle: "Ιστορικό Αναλύσεων",
+    clearAll: "🗑 Εκκαθάριση Όλων",
+    noHistory: "Δεν υπάρχουν αποθηκευμένες αναλύσεις. Κάνε την πρώτη σου!",
+    goAnalyzer: "Πήγαινε στην Ανάλυση",
+    strength: "ισχύς",
+    symbol: "Ζεύγος",
+    apply: "Εφαρμογή",
+    live: "Ζωντανό",
+    connecting: "Σύνδεση...",
+    bidsLegend: "■ Αγοραστές (Bid walls)",
+    asksLegend: "■ Πωλητές (Ask walls)",
+    midPriceLegend: "— Μέση τιμή",
+    whaleLegend: "🐳 Φάλαινα (>5× μέσος όρος)",
+    sources: "Πηγές:",
+    midPrice: "Μέση Τιμή",
+    topBidWall: "Κορυφαίο Bid Wall",
+    topAskWall: "Κορυφαίο Ask Wall",
+    spread: "Spread",
+    bids: "Αγοραστές",
+    asks: "Πωλητές",
+    price: "Τιμή",
+    volume: "Όγκος",
+    intensity: "Ένταση",
+    whaleWalls: "🐳 Εντοπίστηκαν Φάλαινες",
+    setup: "σετάπ",
+    capitalDescription: "Πού ρέει το χρήμα ανά asset class (1d % change μέσω Twelve Data). Πράσινο = εισροή, Κόκκινο = εκροή.",
+    capitalRefresh: "🔄 Ανανέωση",
+    coachDescription: "Κάνε ερωτήσεις για crypto, συγκεκριμένα coins και την αγορά — με βάση τα δικά σου scanner signals, capital flow και μαθήματα. (Πάντα στα Ελληνικά.)",
+    coachEmpty: "Ρώτα π.χ. «Τι βλέπεις για το BTC τώρα;» ή «Πώς διαβάζεις την τρέχουσα ροή κεφαλαίου;»",
+    coachPlaceholder: "Ρώτα κάτι για την αγορά…",
+    coachYou: "Εσύ",
+    coachThinking: "⌛ σκέφτομαι…",
+    coachSend: "➤ Στείλε",
+    earlyDescription: "Νέα / low-cap coins με όγκο + AI thesis (μόνο για έρευνα, όχι σύσταση).",
+    earlyEmpty: "Πάτα «Ανανέωση» για να σκανάρει νέα coins.",
+    resetBreakerSuccess: "Ο Διακόπτης Ασφαλείας επαναφέρθηκε επιτυχώς!",
+    hardVetoFallback: "A strategic rule vetoed this setup.",
+    errorPrefix: "⚠️ Σφάλμα:",
+    capitalEmpty: "Πάτα \"Ανανέωση\" για να φορτώσεις τη ροή κεφαλαίων.",
+    capitalNA: "δεν υποστηρίζεται (free tier)",
+    breakerDesc: "Απενεργοποιεί αυτόματα το scanner μετά από 3 συνεχόμενες αποτυχίες για προστασία κεφαλαίου.",
+    analyticsSubtitle: "Στατιστικά στοιχεία ζωντανής παρακολούθησης και επικύρωσης",
+    leaderboardTitle: "Τα Ρεκόρ μου",
+    leaderboardDesc: "Τα δικά σου ρεκόρ από το ιστορικό — όχι άλλοι χρήστες, μόνο εσύ.",
+    currentWinStreak: "Τρέχουσα σειρά νικών",
+    bestWinStreak: "Καλύτερη σειρά νικών",
+    worstLossStreak: "Χειρότερη σειρά ηττών",
+    bestRTrade: "Καλύτερο R",
+    worstRTrade: "Χειρότερο R",
+    totalR: "Συνολικό R",
+    noCandidates: "Δεν βρέθηκαν candidates με τα φίλτρα (low-cap + volume spike).",
+    refresh: "🔄 Ανανέωση",
+    loading: "Φόρτωση…",
+  },
+  en: {
+    title: "🧙 AI Market Analyzer",
+    subtitle: "Upload trade chart and get a complete trade plan instantly from AI",
+    analyzer: "📊 Analyzer",
+    history: "🕐 History",
+    heatmap: "🌡️ Live Heatmap",
+    capital: "💰 Capital Flow",
+    scanner: "🔍 Scanner",
+    analytics: "📊 Analytics",
+    coach: "💬 AI Coach",
+    early: "🔎 Early Signals",
+    analyticsTitle: "📊 ARIS System Performance Analytics",
+    winRate: "Win Rate",
+    expectancy: "Expectancy",
+    circuitBreaker: "Circuit Breaker",
+    tripped: "TRIPPED (Locked)",
+    operational: "OPERATIONAL",
+    consecutiveLosses: "Consecutive Losses",
+    resetBreaker: "Reset Breaker",
+    positionSize: "Position Size",
+    riskReward: "Risk/Reward (R:R)",
+    theoreticalRR: "Theoretical R:R (Avg)",
+    realizedRR: "Realized R:R (Avg)",
+    directionStats: "Performance by Direction",
+    uploadDrag: "Drag chart here",
+    uploadOr: "or click to select file",
+    uploadLoaded: "✓ Chart Loaded",
+    uploadReplace: "Click here to replace",
+    uploadHints: "Indicator Focus (Optional)",
+    uploadHintsPlaceholder: "e.g. RSI divergence, double bottom",
+    uploadEmpty: "Upload chart on the left for preview",
+    timeframeLabel: "Timeframe (Auto if Auto selected)",
+    timeframeAuto: "🤖 Auto — AI reads it from chart",
+    tvImport: "🔗 Import from TradingView",
+    tvPlaceholder: "Paste snapshot link (Share → Copy link to chart image)",
+    tvFetch: "Fetch Chart",
+    tvFetching: "Loading...",
+    tvError: "Use TradingView 'Share -> Copy link to chart image' to get URL like /x/.",
+    btnAnalyze: "Run AI Analysis",
+    btnAnalyzing: "Analyzing Chart...",
+    btnSecondOpinion: "🔍 Get Second Opinion (Devil's Advocate)",
+    btnGettingOpinion: "Getting Second Opinion...",
+    methodology: "Applied",
+    strengthScore: "Strength Score",
+    methodologyRationale: "Methodology Rationale:",
+    entryTrigger: "Entry Trigger",
+    stopLoss: "Stop Loss (SL)",
+    takeProfit: "Target Profit (TP1)",
+    secondaryTargets: "Secondary Targets:",
+    detectedPatterns: "Detected Patterns & Indicators:",
+    aiReasoning: "AI Reasoning:",
+    loadingMsg: "Executing Analysis Engine...",
+    loadingSubMsg: "Detecting levels, order blocks, and wave structures",
+    soConfirmed: "CONFIRMED",
+    soRejected: "REJECTED",
+    soCaution: "CAUTION",
+    soChallengePoints: "⚡ Challenge Points:",
+    soAlternative: "Alternative Scenario:",
+    soConfidence: "Confidence",
+    historyTitle: "Analysis History",
+    clearAll: "🗑 Clear All",
+    noHistory: "No saved analyses. Create your first one!",
+    goAnalyzer: "Go to Analyzer",
+    strength: "strength",
+    symbol: "Pair",
+    apply: "Apply",
+    live: "Live",
+    connecting: "Connecting...",
+    bidsLegend: "■ Bids (Bid walls)",
+    asksLegend: "■ Asks (Ask walls)",
+    midPriceLegend: "— Mid Price",
+    whaleLegend: "🐳 Whale (>5x avg)",
+    sources: "Sources:",
+    midPrice: "Mid Price",
+    topBidWall: "Top Bid Wall",
+    topAskWall: "Top Ask Wall",
+    spread: "Spread",
+    bids: "Bids",
+    asks: "Asks",
+    price: "Price",
+    volume: "Volume",
+    intensity: "Intensity",
+    whaleWalls: "🐳 Whale Walls Detected",
+    setup: "setup",
+    capitalDescription: "Where smart money flows across asset classes (1d % change via Twelve Data). Green = inflow, Red = outflow.",
+    capitalRefresh: "🔄 Refresh",
+    coachDescription: "Ask questions about crypto, specific coins and the market — based on your scanner signals, capital flow and lessons. (Always in Greek.)",
+    coachEmpty: "Ask e.g. 'What do you see for BTC now?' or 'How do you read current capital flow?'",
+    coachPlaceholder: "Ask something about the market...",
+    coachYou: "You",
+    coachThinking: "⌛ thinking...",
+    coachSend: "➤ Send",
+    earlyDescription: "New / low-cap coins with volume + AI thesis (research only, no financial advice).",
+    earlyEmpty: "Click 'Refresh' to scan new coins.",
+    resetBreakerSuccess: "Circuit Breaker successfully reset!",
+    hardVetoFallback: "A strategic rule vetoed this setup.",
+    errorPrefix: "⚠️ Error:",
+    capitalEmpty: "Click 'Refresh' to load capital flows.",
+    capitalNA: "not supported (free tier)",
+    breakerDesc: "Automatically disables the scanner after 3 consecutive losses to protect capital.",
+    analyticsSubtitle: "Live tracking and validation statistics",
+    leaderboardTitle: "My Records",
+    leaderboardDesc: "Your own records from history — no other users, just you.",
+    currentWinStreak: "Current Win Streak",
+    bestWinStreak: "Best Win Streak",
+    worstLossStreak: "Worst Loss Streak",
+    bestRTrade: "Best R Trade",
+    worstRTrade: "Worst R Trade",
+    totalR: "Total R",
+    noCandidates: "No candidates found with filters (low-cap + volume spike).",
+    refresh: "🔄 Refresh",
+    loading: "Loading...",
+  }
+};
+
+const API_BASE = `http://${window.location.hostname}:5000`;
+
+export default function App() {
+  const [e, setE] = useState(() => localStorage.getItem('trading_analyzer_lang') || 'el');
+  const [l, setL] = useState('analyzer');
+  const [a, setA] = useState('');
+  const [c, setC] = useState('BTCUSDT');
+  const [N, setN] = useState('1h');
+  const [m, setM] = useState(null);
+  const [E, setEUrl] = useState(null);
+  const [q, setQ] = useState(false);
+  const [d, setD] = useState(false);
+  const [j, setJ] = useState('');
+  const [g, setGResult] = useState(null);
+  const [z, setZ] = useState('');
+  const [B, setB] = useState(false);
+  const [stUrl, setStUrl] = useState('');
+  const [tl, setTl] = useState(false);
+  const [Rn, setRn] = useState(false);
+  const [L, setLSoErr] = useState('');
+  const [I, setIResult] = useState(null);
+
+  const [G, setGHistory] = useState(() => {
+    try {
+      const stored = localStorage.getItem('trading_analyzer_history');
+      return stored ? JSON.parse(stored) : [];
+    } catch {
+      return [];
+    }
+  });
+
+  const [rt, setRt] = useState(null);
+  const [ft, setFt] = useState('ALL');
+  const [rl, setRl] = useState('BTCUSDT');
+  const [U, setUHeatmap] = useState(null);
+  const [Ha, setHaConnected] = useState(false);
+  const [dn, setDnSignals] = useState([]);
+  const [Ga, setGaLastScan] = useState(null);
+  const [Bt, setBtScannerState] = useState({ isScanning: false, lastScanAt: null });
+  const [Ka, setKaElapsed] = useState(0);
+  const [D, setDAnalytics] = useState(null);
+  const [ba, setBaLoading] = useState(false);
+  const [lt, setLtCapital] = useState(null);
+  const [ks, setKsLoading] = useState(false);
+  const [Es, setEsMessages] = useState([]);
+  const [Ts, setTsInput] = useState('');
+  const [cr, setCrChatting] = useState(false);
+  const [st, setStEarly] = useState(null);
+  const [sl, setSlLoading] = useState(false);
+
+  const fileInputRef = useRef(null);
+  const canvasRef = useRef(null);
+  const heatmapCanvasRef = useRef(null);
+  const heatmapHistoryRef = useRef([]);
+
+  const t = TRANSLATIONS[e] || TRANSLATIONS.el;
+
+  const toggleLanguage = () => {
+    const nextLang = e === 'el' ? 'en' : 'el';
+    setE(nextLang);
+    localStorage.setItem('trading_analyzer_lang', nextLang);
+  };
+
+  const playAlert = () => {
+    try {
+      const AudioCtx = window.AudioContext || window.webkitAudioContext;
+      if (!AudioCtx) return;
+      const ctx = new AudioCtx();
+      const playTone = (freq, duration, delay) => {
+        const osc = ctx.createOscillator();
+        const gain = ctx.createGain();
+        osc.connect(gain);
+        gain.connect(ctx.destination);
+        osc.frequency.value = freq;
+        gain.gain.setValueAtTime(0.15, ctx.currentTime + delay);
+        gain.gain.exponentialRampToValueAtTime(0.0001, ctx.currentTime + delay + duration);
+        osc.start(ctx.currentTime + delay);
+        osc.stop(ctx.currentTime + delay + duration);
+      };
+      playTone(880, 0.15, 0);
+      playTone(660, 0.15, 0.1);
+      setTimeout(() => {
+        playTone(1100, 0.15, 0);
+        playTone(880, 0.15, 0.1);
+      }, 250);
+    } catch (err) {
+      console.warn('Audio error:', err);
+    }
+  };
+
+  useEffect(() => {
+    localStorage.setItem('trading_analyzer_history', JSON.stringify(G));
+  }, [G]);
+
+  const loadHistory = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/history`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.history) {
+          setGHistory(data.history);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load history from backend:', err);
+    }
+  };
+
+  const loadSignals = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/signals`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.signals) {
+          const hasNew = data.signals.some(s => s.is_new === 1 || s.isNew);
+          if (hasNew) playAlert();
+          setDnSignals(data.signals);
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to fetch signals:', err);
+    }
+  };
+
+  const loadScannerStatus = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/scanner/status`);
+      if (res.ok) {
+        const data = await res.json();
+        setBtScannerState(data);
+      }
+    } catch (err) {
+      console.warn('Failed to get scanner status:', err);
+    }
+  };
+
+  useEffect(() => {
+    loadHistory();
+    loadSignals();
+    loadScannerStatus();
+
+    const historyInterval = setInterval(loadHistory, 30000);
+    const signalInterval = setInterval(loadSignals, 5000);
+    const scannerInterval = setInterval(loadScannerStatus, 2000);
+
+    return () => {
+      clearInterval(historyInterval);
+      clearInterval(signalInterval);
+      clearInterval(scannerInterval);
+    };
+  }, []);
+
+  const handleDrag = (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    if (ev.type === 'dragenter' || ev.type === 'dragover') setQ(true);
+    else if (ev.type === 'dragleave') setQ(false);
+  };
+
+  const handleDrop = (ev) => {
+    ev.preventDefault();
+    ev.stopPropagation();
+    setQ(false);
+    if (ev.dataTransfer.files && ev.dataTransfer.files[0]) {
+      const file = ev.dataTransfer.files[0];
+      setM(file);
+      setEUrl(URL.createObjectURL(file));
+      setGResult(null);
+      setIResult(null);
+    }
+  };
+
+  const handleFileSelect = (ev) => {
+    if (ev.target.files && ev.target.files[0]) {
+      const file = ev.target.files[0];
+      setM(file);
+      setEUrl(URL.createObjectURL(file));
+      setGResult(null);
+      setIResult(null);
+    }
+  };
+
+  const fetchTVChart = async () => {
+    if (!z) return;
+    setB(true);
+    setStUrl('');
+    try {
+      const res = await fetch(`${API_BASE}/api/fetch-tradingview`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ url: z })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to fetch TV chart.');
+      
+      const blobRes = await fetch(data.image);
+      const blob = await blobRes.blob();
+      const file = new File([blob], 'chart.png', { type: data.mimeType || 'image/png' });
+      setM(file);
+      setEUrl(data.image);
+      setGResult(null);
+      setIResult(null);
+    } catch (err) {
+      setStUrl(err.message);
+    } finally {
+      setB(false);
+    }
+  };
+
+  const runAnalysis = async () => {
+    if (!m) return;
+    setD(true);
+    setJ('');
+    setGResult(null);
+    setIResult(null);
+
+    const fdObj = new FormData();
+    fdObj.append('chart', m);
+    fdObj.append('pair', c);
+    fdObj.append('timeframe', N);
+    fdObj.append('hints', a);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/analyze`, {
+        method: 'POST',
+        body: fdObj
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Analysis failed.');
+      setGResult(data);
+      
+      // Update local history
+      const newCard = {
+        id: data.id || Date.now().toString(),
+        instrument: c,
+        timeframe: N,
+        bias: data.bias,
+        direction: data.bias,
+        status: data.setupStatus || 'PENDING',
+        entry: data.entry,
+        sl: data.sl,
+        targets: data.targets || [],
+        created_at: new Date().toISOString(),
+        reasoning: data.reasoning,
+        confidenceGrade: data.confidenceGrade,
+        confidencePct: data.confidencePct,
+        methodology: data.methodology || 'ARIS_SMC',
+        chartDataUrl: E
+      };
+      setGHistory(prev => [newCard, ...prev.slice(0, 49)]);
+    } catch (err) {
+      setJ(err.message);
+    } finally {
+      setD(false);
+    }
+  };
+
+  const runSecondOpinion = async () => {
+    if (!g) return;
+    setRn(true);
+    setLSoErr('');
+    setIResult(null);
+
+    const fdObj = new FormData();
+    if (m) fdObj.append('chart', m);
+    fdObj.append('originalResult', JSON.stringify(g));
+    fdObj.append('pair', c);
+    fdObj.append('timeframe', N);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/second-opinion`, {
+        method: 'POST',
+        body: fdObj
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to get second opinion.');
+      setIResult(data);
+    } catch (err) {
+      setLSoErr(err.message);
+    } finally {
+      setRn(false);
+    }
+  };
+
+  // Canvas Drawing for Levels overlay
+  useEffect(() => {
+    if (!canvasRef.current || !E || !g) return;
+    const canvas = canvasRef.current;
+    const ctx = canvas.getContext('2d');
+    const img = new Image();
+    img.onload = () => {
+      canvas.width = img.naturalWidth;
+      canvas.height = img.naturalHeight;
+      ctx.drawImage(img, 0, 0);
+
+      // Check overlay fields or fall back to drawing lines
+      const sl = g.sl;
+      const entry = g.entry;
+      const targets = g.targets || [];
+      const overlay = g.overlay || {};
+      
+      const priceMin = overlay.priceMin;
+      const priceMax = overlay.priceMax;
+
+      if (priceMin != null && priceMax != null) {
+        const getValY = (price) => {
+          const pct = (price - priceMin) / (priceMax - priceMin);
+          return canvas.height * (1 - pct);
+        };
+
+        const drawLine = (y, color, txt, dotted = false) => {
+          ctx.beginPath();
+          ctx.strokeStyle = color;
+          ctx.lineWidth = 4;
+          if (dotted) ctx.setLineDash([8, 8]);
+          else ctx.setLineDash([]);
+          ctx.moveTo(0, y);
+          ctx.lineTo(canvas.width, y);
+          ctx.stroke();
+
+          ctx.font = 'bold 20px Sora, sans-serif';
+          ctx.fillStyle = color;
+          ctx.fillText(txt, 20, y - 8);
+        };
+
+        if (sl != null) drawLine(getValY(sl), '#ef4444', `SL: $${sl.toFixed(4)}`, true);
+        
+        if (entry != null) {
+          if (typeof entry === 'object' && entry.low != null && entry.high != null) {
+            const yLow = getValY(entry.low);
+            const yHigh = getValY(entry.high);
+            ctx.fillStyle = 'rgba(34, 211, 238, 0.15)';
+            ctx.fillRect(0, Math.min(yLow, yHigh), canvas.width, Math.abs(yLow - yHigh));
+            drawLine(getValY(entry.price || entry.low), '#22d3ee', `ENTRY: $${(entry.price || entry.low).toFixed(4)}`);
+          } else if (typeof entry === 'number') {
+            drawLine(getValY(entry), '#22d3ee', `ENTRY: $${entry.toFixed(4)}`);
+          }
+        }
+
+        targets.forEach((tg, idx) => {
+          drawLine(getValY(tg), '#10b981', `TP${idx + 1}: $${tg.toFixed(4)}`);
+        });
+      }
+    };
+    img.src = E;
+  }, [E, g]);
+
+  // Heatmap Stream & Drawing
+  const toggleHeatmap = async (sym) => {
+    try {
+      setHaConnected(false);
+      heatmapHistoryRef.current = [];
+      
+      await fetch(`${API_BASE}/api/heatmap/start`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ symbol: sym })
+      });
+
+      if (window.heatmapSse) window.heatmapSse.close();
+      const sse = new EventSource(`${API_BASE}/api/heatmap-stream?symbol=${sym}`);
+      window.heatmapSse = sse;
+
+      sse.onmessage = (event) => {
+        try {
+          const snapshot = JSON.parse(event.data);
+          setUHeatmap(snapshot);
+          setHaConnected(true);
+
+          // Accumulate history for visualization
+          heatmapHistoryRef.current.push({
+            midPrice: snapshot.midPrice,
+            bids: snapshot.bids || [],
+            asks: snapshot.asks || [],
+            timestamp: Date.now()
+          });
+          if (heatmapHistoryRef.current.length > 150) {
+            heatmapHistoryRef.current.shift();
+          }
+        } catch (e) {
+          // ignore
+        }
+      };
+
+      sse.onerror = () => {
+        setHaConnected(false);
+      };
+    } catch (err) {
+      console.error(err);
+    }
+  };
+
+  useEffect(() => {
+    if (l === 'heatmap') {
+      toggleHeatmap(rl);
+    } else {
+      if (window.heatmapSse) {
+        window.heatmapSse.close();
+        window.heatmapSse = null;
+      }
+    }
+  }, [l]);
+
+  // Render heatmap canvas
+  useEffect(() => {
+    if (!heatmapCanvasRef.current || heatmapHistoryRef.current.length === 0) return;
+    const canvas = heatmapCanvasRef.current;
+    const ctx = canvas.getContext('2d');
+    
+    // Clear
+    ctx.fillStyle = '#040a07';
+    ctx.fillRect(0, 0, canvas.width, canvas.height);
+
+    const history = heatmapHistoryRef.current;
+    const current = history[history.length - 1];
+    
+    // Find price boundaries across current depth profile
+    const allPrices = [...current.bids, ...current.asks].map(o => o.price);
+    if (allPrices.length === 0) return;
+    
+    const maxP = Math.max(...allPrices, current.midPrice) * 1.002;
+    const minP = Math.min(...allPrices, current.midPrice) * 0.998;
+
+    const getValY = (price) => {
+      const pct = (price - minP) / (maxP - minP);
+      return canvas.height * (1 - pct);
+    };
+
+    // Draw grid lines
+    ctx.strokeStyle = 'rgba(16, 185, 129, 0.05)';
+    ctx.lineWidth = 1;
+    for (let i = 1; i < 6; i++) {
+      const y = (canvas.height / 6) * i;
+      ctx.beginPath();
+      ctx.moveTo(0, y);
+      ctx.lineTo(canvas.width, y);
+      ctx.stroke();
+
+      const priceLabel = minP + (maxP - minP) * (1 - i / 6);
+      ctx.fillStyle = 'rgba(148, 163, 184, 0.4)';
+      ctx.font = '10px JetBrains Mono';
+      ctx.fillText(`$${priceLabel.toFixed(2)}`, canvas.width - 70, y - 4);
+    }
+
+    // Draw Heatmap Columns (historical snapshot blocks)
+    const colWidth = (canvas.width - 150) / 150;
+    history.forEach((snap, idx) => {
+      const x = idx * colWidth;
+      
+      // Draw bids (green intensity)
+      snap.bids.forEach(b => {
+        const y = getValY(b.price);
+        const opacity = Math.min(b.intensity || 0.1, 1);
+        ctx.fillStyle = `rgba(16, 185, 129, ${opacity * 0.45})`;
+        ctx.fillRect(x, y - 2, colWidth + 1, 4);
+
+        if (b.isWhale) {
+          ctx.fillStyle = '#10b981';
+          ctx.fillRect(x, y - 3, colWidth + 1, 6);
+        }
+      });
+
+      // Draw asks (red intensity)
+      snap.asks.forEach(a => {
+        const y = getValY(a.price);
+        const opacity = Math.min(a.intensity || 0.1, 1);
+        ctx.fillStyle = `rgba(239, 68, 68, ${opacity * 0.45})`;
+        ctx.fillRect(x, y - 2, colWidth + 1, 4);
+
+        if (a.isWhale) {
+          ctx.fillStyle = '#ef4444';
+          ctx.fillRect(x, y - 3, colWidth + 1, 6);
+        }
+      });
+
+      // Draw midPrice line segment
+      if (idx > 0) {
+        ctx.strokeStyle = '#ffffff';
+        ctx.lineWidth = 1.5;
+        ctx.beginPath();
+        ctx.moveTo((idx - 1) * colWidth, getValY(history[idx - 1].midPrice));
+        ctx.lineTo(x, getValY(snap.midPrice));
+        ctx.stroke();
+      }
+    });
+
+    // Draw depth chart profile on the right panel (last 150px)
+    const profileStart = canvas.width - 140;
+    ctx.fillStyle = 'rgba(0, 0, 0, 0.3)';
+    ctx.fillRect(profileStart, 0, 140, canvas.height);
+    ctx.strokeStyle = 'rgba(255, 255, 255, 0.1)';
+    ctx.beginPath();
+    ctx.moveTo(profileStart, 0);
+    ctx.lineTo(profileStart, canvas.height);
+    ctx.stroke();
+
+    // Volume Profile profile bars
+    current.bids.forEach(b => {
+      const y = getValY(b.price);
+      const barLen = Math.min((b.qty / 500) * 120, 120);
+      ctx.fillStyle = b.isWhale ? '#00ff96' : 'rgba(16, 185, 129, 0.3)';
+      ctx.fillRect(profileStart, y - 3, barLen, 6);
+      if (b.isWhale) {
+        ctx.fillStyle = '#00ff96';
+        ctx.font = '10px Sora';
+        ctx.fillText('🐳', profileStart + barLen + 5, y + 4);
+      }
+    });
+
+    current.asks.forEach(a => {
+      const y = getValY(a.price);
+      const barLen = Math.min((a.qty / 500) * 120, 120);
+      ctx.fillStyle = a.isWhale ? '#ff3a3a' : 'rgba(239, 68, 68, 0.3)';
+      ctx.fillRect(profileStart, y - 3, barLen, 6);
+      if (a.isWhale) {
+        ctx.fillStyle = '#ff3a3a';
+        ctx.font = '10px Sora';
+        ctx.fillText('🐳', profileStart + barLen + 5, y + 4);
+      }
+    });
+
+    // Draw current midPrice label
+    const midY = getValY(current.midPrice);
+    ctx.strokeStyle = '#ffffff';
+    ctx.setLineDash([4, 4]);
+    ctx.beginPath();
+    ctx.moveTo(0, midY);
+    ctx.lineTo(canvas.width, midY);
+    ctx.stroke();
+    ctx.setLineDash([]);
+
+    ctx.fillStyle = '#ffffff';
+    ctx.font = 'bold 11px JetBrains Mono';
+    ctx.fillText(`Mid: $${current.midPrice.toFixed(2)}`, 10, midY - 6);
+
+  }, [U]);
+
+  // Load Capital Flow
+  const fetchCapital = async (force = false) => {
+    setKsLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/capital-flow${force ? '?force=1' : ''}`);
+      const data = await res.json();
+      setLtCapital(data);
+    } catch {
+      // error handling
+    } finally {
+      setKsLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (l === 'capital') fetchCapital();
+  }, [l]);
+
+  // Load Early Signals
+  const fetchEarly = async (force = false) => {
+    setSlLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/early-signals${force ? '?force=1' : ''}`);
+      const data = await res.json();
+      setStEarly(data);
+    } catch {
+      // error
+    } finally {
+      setSlLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (l === 'early') fetchEarly();
+  }, [l]);
+
+  // Load System Analytics
+  const fetchAnalytics = async () => {
+    setBaLoading(true);
+    try {
+      const res = await fetch(`${API_BASE}/api/analytics`);
+      const data = await res.json();
+      setDAnalytics(data);
+    } catch {
+      // error
+    } finally {
+      setBaLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (l === 'analytics') fetchAnalytics();
+  }, [l]);
+
+  const resetBreaker = async () => {
+    try {
+      const res = await fetch(`${API_BASE}/api/scanner/reset`, { method: 'POST' });
+      if (res.ok) {
+        alert(t.resetBreakerSuccess);
+        fetchAnalytics();
+      }
+    } catch (err) {
+      alert(err.message);
+    }
+  };
+
+  const triggerScan = async () => {
+    try {
+      setBtScannerState(s => ({ ...s, isScanning: true }));
+      await fetch(`${API_BASE}/api/scanner/run`, { method: 'POST' });
+      // Poll scanner status until the scan finishes (isScanning goes false),
+      // then reload signals so new setups appear without manual refresh.
+      const poll = setInterval(async () => {
+        try {
+          const res = await fetch(`${API_BASE}/api/scanner/status`);
+          if (res.ok) {
+            const data = await res.json();
+            setBtScannerState(data);
+            if (!data.isScanning) {
+              clearInterval(poll);
+              loadSignals();
+              loadScannerStatus();
+            }
+          }
+        } catch { /* ignore */ }
+      }, 2000);
+    } catch (err) {
+      console.warn(err);
+    }
+  };
+
+  // Coach Chat Submit
+  const handleChatSend = async () => {
+    if (!Ts.trim() || cr) return;
+    const userMsg = { role: 'user', content: Ts };
+    setEsMessages(prev => [...prev, userMsg]);
+    setTsInput('');
+    setCrChatting(true);
+
+    try {
+      const res = await fetch(`${API_BASE}/api/chat`, {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          message: userMsg.content,
+          history: Es
+        })
+      });
+      const data = await res.json();
+      if (!res.ok) throw new Error(data.error || 'Failed to chat');
+      setEsMessages(prev => [...prev, { role: 'assistant', content: data.reply }]);
+    } catch (err) {
+      setEsMessages(prev => [...prev, { role: 'assistant', content: `${t.errorPrefix} ${err.message}` }]);
+    } finally {
+      setCrChatting(false);
+    }
+  };
+
+  // History filtering counting helper
+  const totalTradesCount = G.length;
+  const winCount = G.filter(tCard => tCard.status === 'SUCCESS').length;
+  const failCount = G.filter(tCard => tCard.status === 'FAILED').length;
+  const activeCount = G.filter(tCard => tCard.status === 'ACTIVE').length;
+  const pendingCount = G.filter(tCard => tCard.status === 'PENDING').length;
+  const expiredCount = G.filter(tCard => tCard.status === 'EXPIRED').length;
+  const computedWinRate = (winCount + failCount) > 0 ? ((winCount / (winCount + failCount)) * 100).toFixed(1) : '0';
+
+  const filteredHistory = G.filter(tCard => {
+    if (ft === 'ALL') return true;
+    return tCard.status === ft;
+  });
+
+  return (
+    <div className="app-container">
+      <header>
+        <h1>{t.title}</h1>
+        <p>{t.subtitle}</p>
+        <button onClick={toggleLanguage} className="lang-toggle">
+          {e === 'el' ? '🇬🇧 English' : '🇬🇷 Ελληνικά'}
+        </button>
+      </header>
+
+      {/* Navigation tabs */}
+      <nav className="tab-nav">
+        {[
+          { id: 'analyzer', label: t.analyzer },
+          { id: 'history', label: `${t.history} (${totalTradesCount})` },
+          { id: 'heatmap', label: t.heatmap },
+          { id: 'capital', label: t.capital },
+          { id: 'scanner', label: `${t.scanner} (${dn.length})` },
+          { id: 'analytics', label: t.analytics },
+          { id: 'coach', label: t.coach },
+          { id: 'early', label: t.early }
+        ].map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setL(tab.id)}
+            className={`tab-btn ${l === tab.id ? 'active' : ''}`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </nav>
+
+      {/* Main Sections */}
+      {l === 'analyzer' && (
+        <div className="main-layout">
+          <div className="panel">
+            <div
+              className={`upload-zone ${q ? 'drag-active' : ''} ${E ? 'loaded' : ''}`}
+              onDragEnter={handleDrag}
+              onDragOver={handleDrag}
+              onDragLeave={handleDrag}
+              onDrop={handleDrop}
+              onClick={() => fileInputRef.current.click()}
+            >
+              <div className="upload-icon">📷</div>
+              {E ? (
+                <div>
+                  <p style={{ color: '#10b981', fontWeight: 600 }}>{t.uploadLoaded}</p>
+                  <p className="muted-sm">{t.uploadReplace}</p>
+                </div>
+              ) : (
+                <div>
+                  <p>{t.uploadDrag}</p>
+                  <p className="muted-sm">{t.uploadOr}</p>
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                onChange={handleFileSelect}
+                style={{ display: 'none' }}
+              />
+            </div>
+
+            {/* TradingView Snapshot Import */}
+            <div className="tv-import-section">
+              <button className="btn-tv-toggle" onClick={() => setTl(!tl)}>
+                {t.tvImport}
+              </button>
+              {tl && (
+                <div style={{ marginTop: '0.5rem' }}>
+                  <div className="tv-input-row">
+                    <input
+                      type="text"
+                      placeholder={t.tvPlaceholder}
+                      value={z}
+                      onChange={ev => setZ(ev.target.value)}
+                    />
+                    <button className="btn-tv-fetch" onClick={fetchTVChart} disabled={B}>
+                      {B ? t.tvFetching : t.tvFetch}
+                    </button>
+                  </div>
+                  {stUrl && <div className="error-box">{stUrl}</div>}
+                </div>
+              )}
+            </div>
+
+            <div className="form-group">
+              <label>{t.symbol}</label>
+              <input
+                type="text"
+                value={c}
+                onChange={ev => setC(ev.target.value.toUpperCase())}
+                placeholder="e.g. BTCUSDT"
+              />
+            </div>
+
+            <div className="form-group">
+              <label>{t.timeframeLabel}</label>
+              <select value={N} onChange={ev => setN(ev.target.value)}>
+                <option value="auto">{t.timeframeAuto}</option>
+                {['1m', '5m', '15m', '30m', '1h', '2h', '4h', '6h', '12h', '1d', '3d', '1w'].map(tf => (
+                  <option key={tf} value={tf}>{tf}</option>
+                ))}
+              </select>
+            </div>
+
+            <div className="form-group">
+              <label>{t.uploadHints}</label>
+              <input
+                type="text"
+                value={a}
+                onChange={ev => setA(ev.target.value)}
+                placeholder={t.uploadHintsPlaceholder}
+              />
+            </div>
+
+            <button className="btn-analyze" onClick={runAnalysis} disabled={d || !m}>
+              {d ? (
+                <div className="btn-loading">
+                  <div className="spinner-sm"></div>
+                  {t.btnAnalyzing}
+                </div>
+              ) : t.btnAnalyze}
+            </button>
+
+            {j && <div className="error-box">{j}</div>}
+          </div>
+
+          <div className="panel" style={{ minHeight: '400px' }}>
+            {E ? (
+              <div className="canvas-container">
+                <canvas ref={canvasRef} />
+              </div>
+            ) : (
+              <div className="empty-canvas-placeholder">{t.uploadEmpty}</div>
+            )}
+
+            {g && (
+              <div className="result-section">
+                <div className="result-header">
+                  <div>
+                    <span className="badge badge-smc">{g.methodology || 'ARIS SMC'}</span>
+                    <h2 style={{ fontSize: '1.8rem', marginTop: '0.4rem' }}>{g.instrument}</h2>
+                  </div>
+                  <div style={{ textAlign: 'right' }}>
+                    <div className={`bias-tag ${g.bias?.toLowerCase() === 'long' ? 'bullish' : g.bias?.toLowerCase() === 'short' ? 'bearish' : 'neutral'}`}>
+                      {g.bias}
+                    </div>
+                    <div className="score-display">
+                      <span className="score-value">{g.megaScore || '0/31'}</span>
+                      <div className="score-bar">
+                        <div
+                          className="score-fill"
+                          style={{ width: `${(parseFloat(g.megaScore || '0') / 31) * 100}%` }}
+                        ></div>
+                      </div>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="methodology-reason">{g.methodologyReason}</p>
+
+                {g.hardVeto && (
+                  <div className="error-box" style={{ background: '#ef44441f', borderColor: '#ef444455', color: '#f87171', marginBottom: '1rem' }}>
+                    🛑 <strong>HARD VETO ACTIVE</strong> — {g.hardVetoReason || t.hardVetoFallback}
+                  </div>
+                )}
+
+                <div className="levels-grid">
+                  <div className="level-card entry">
+                    <div className="card-title">{t.entryTrigger}</div>
+                    <div className="level-value cyan">
+                      ${typeof g.entry === 'object' ? g.entry.price : g.entry}
+                    </div>
+                  </div>
+                  <div className="level-card sl">
+                    <div className="card-title">{t.stopLoss}</div>
+                    <div className="level-value red">${g.sl}</div>
+                  </div>
+                  <div className="level-card tp">
+                    <div className="card-title">{t.takeProfit}</div>
+                    <div className="level-value green">${g.targets?.[0]}</div>
+                  </div>
+                </div>
+
+                {g.targets && g.targets.length > 1 && (
+                  <div className="secondary-targets">
+                    <span className="card-title">{t.secondaryTargets}</span>
+                    {g.targets.slice(1).map((tg, idx) => (
+                      <span key={idx} className="tp-badge">TP{idx + 2}: ${tg}</span>
+                    ))}
+                  </div>
+                )}
+
+                <div className="confluences-section">
+                  <label>{t.detectedPatterns}</label>
+                  <div className="confluences-list">
+                    {(g.patterns || []).concat(g.indicators || []).map((pat, idx) => (
+                      <span key={idx} className="confluence-item">{pat}</span>
+                    ))}
+                  </div>
+                </div>
+
+                <label>{t.aiReasoning}</label>
+                <div className="reasoning-text">{g.reasoning}</div>
+
+                <div style={{ marginTop: '1.5rem' }}>
+                  <button className="btn-second-opinion" onClick={runSecondOpinion} disabled={Rn}>
+                    {Rn ? t.btnGettingOpinion : t.btnSecondOpinion}
+                  </button>
+                  {L && <div className="error-box">{L}</div>}
+                </div>
+
+                {I && (
+                  <div className="second-opinion-card" style={{ '--so-color': I.verdict === 'confirm' ? '#10b98144' : I.verdict === 'reject' ? '#ef444444' : '#f59e0b44' }}>
+                    <div className="so-header">
+                      <div className="so-icon">
+                        {I.verdict === 'confirm' ? '✅' : I.verdict === 'reject' ? '🚨' : '⚠️'}
+                      </div>
+                      <div>
+                        <div className="so-verdict" style={{ color: I.verdict === 'confirm' ? '#10b981' : I.verdict === 'reject' ? '#ef4444' : '#f59e0b' }}>
+                          {I.verdict === 'confirm' ? t.soConfirmed : I.verdict === 'reject' ? t.soRejected : t.soCaution}
+                        </div>
+                        <div className="so-reason">{I.verdictReason}</div>
+                      </div>
+                      <div className="so-confidence">
+                        <div className="card-title">{t.soConfidence}</div>
+                        <div style={{ fontWeight: 800, color: '#e2e8f0' }}>{I.confidence}%</div>
+                      </div>
+                    </div>
+
+                    <div className="so-risks">
+                      <div className="detail-label">{t.soChallengePoints}</div>
+                      <ul className="so-risk-list">
+                        {(I.challengePoints || []).map((pt, idx) => (
+                          <li key={idx}>{pt}</li>
+                        ))}
+                      </ul>
+                    </div>
+
+                    <div className="so-details">
+                      <div className="detail-label">{t.soAlternative}</div>
+                      <div className="detail-value" style={{ fontStyle: 'italic' }}>{I.alternativeScenario}</div>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+        </div>
+      )}
+
+      {l === 'history' && (
+        <div>
+          {/* Tracker stats boxes with click to filter handlers */}
+          <div className="tracker-stats-bar" style={{ cursor: 'pointer' }}>
+            <div className="tracker-stat-box" onClick={() => setFt('ALL')} style={{ borderBottom: ft === 'ALL' ? '3px solid #10b981' : '' }}>
+              <span className="stat-label">Total Trades</span>
+              <span className="stat-value">{totalTradesCount}</span>
+            </div>
+            <div className="tracker-stat-box" onClick={() => setFt('ALL')} style={{ borderBottom: ft === 'ALL' ? '3px solid #10b981' : '' }}>
+              <span className="stat-label">{t.winRate}</span>
+              <span className="stat-value">{computedWinRate}%</span>
+            </div>
+            <div className="tracker-stat-box" onClick={() => setFt('SUCCESS')} style={{ borderBottom: ft === 'SUCCESS' ? '3px solid #10b981' : '' }}>
+              <span className="stat-label">Success (TP)</span>
+              <span className="stat-value" style={{ color: '#10b981' }}>{winCount}</span>
+            </div>
+            <div className="tracker-stat-box" onClick={() => setFt('FAILED')} style={{ borderBottom: ft === 'FAILED' ? '3px solid #ef4444' : '' }}>
+              <span className="stat-label">Failed (SL)</span>
+              <span className="stat-value" style={{ color: '#ef4444' }}>{failCount}</span>
+            </div>
+            <div className="tracker-stat-box" onClick={() => setFt('ACTIVE')} style={{ borderBottom: ft === 'ACTIVE' ? '3px solid #06b6d4' : '' }}>
+              <span className="stat-label">Active</span>
+              <span className="stat-value" style={{ color: '#06b6d4' }}>{activeCount}</span>
+            </div>
+            <div className="tracker-stat-box" onClick={() => setFt('PENDING')} style={{ borderBottom: ft === 'PENDING' ? '3px solid #fbbf24' : '' }}>
+              <span className="stat-label">Pending</span>
+              <span className="stat-value" style={{ color: '#fbbf24' }}>{pendingCount}</span>
+            </div>
+          </div>
+
+          <div className="history-header">
+            <h2>{t.historyTitle}</h2>
+            <button className="btn-clear" onClick={() => setGHistory([])}>
+              {t.clearAll}
+            </button>
+          </div>
+
+          {/* Filter Pills */}
+          <div className="history-filter-bar">
+            {[
+              { id: 'ALL', label: 'ALL', count: totalTradesCount, color: '#e2e8f0' },
+              { id: 'SUCCESS', label: 'SUCCESS', count: winCount, color: '#10b981' },
+              { id: 'FAILED', label: 'FAILED', count: failCount, color: '#ef4444' },
+              { id: 'ACTIVE', label: 'ACTIVE', count: activeCount, color: '#06b6d4' },
+              { id: 'PENDING', label: 'PENDING', count: pendingCount, color: '#fbbf24' },
+              { id: 'EXPIRED', label: 'EXPIRED', count: expiredCount, color: '#94a3b8' }
+            ].map(pill => (
+              <button
+                key={pill.id}
+                onClick={() => setFt(pill.id)}
+                className={`history-filter-pill ${ft === pill.id ? 'active' : ''}`}
+                style={{ '--pill-color': pill.color }}
+              >
+                <span className="pill-dot" style={{ backgroundColor: pill.color }}></span>
+                <span className="pill-label">{pill.label}</span>
+                <span className="pill-count">{pill.count}</span>
+              </button>
+            ))}
+          </div>
+
+          {filteredHistory.length === 0 ? (
+            <div className="empty-state">
+              <p>{t.noHistory}</p>
+              <button className="btn-secondary" onClick={() => setL('analyzer')}>
+                {t.goAnalyzer}
+              </button>
+            </div>
+          ) : (
+            <div className="history-grid">
+              {filteredHistory.map(card => {
+                const isExpanded = rt === card.id;
+                return (
+                  <div
+                    key={card.id}
+                    className={`history-card-updated ${isExpanded ? 'expanded' : ''} ${
+                      card.status === 'SUCCESS' ? 'success-border' :
+                      card.status === 'FAILED' ? 'failed-border' :
+                      card.status === 'ACTIVE' ? 'active-border' :
+                      card.status === 'EXPIRED' ? 'expired-border' : 'pending-border'
+                    }`}
+                    onClick={() => setRt(isExpanded ? null : card.id)}
+                  >
+                    <div className="h-top-row">
+                      <span className="h-symbol">
+                        {card.instrument}
+                        <span className="h-tf">{card.timeframe}</span>
+                      </span>
+                      <span
+                        className="h-status-badge"
+                        style={{
+                          backgroundColor: card.status === 'SUCCESS' ? '#10b981' : card.status === 'FAILED' ? '#ef4444' : card.status === 'ACTIVE' ? '#06b6d4' : '#fbbf24'
+                        }}
+                      >
+                        {card.status}
+                      </span>
+                    </div>
+
+                    <div className="h-dir-row">
+                      <span className={`badge ${card.direction === 'LONG' ? 'dir-long' : card.direction === 'SHORT' ? 'dir-short' : ''}`}>
+                        {card.direction || '—'}
+                      </span>
+                      <span style={{ fontSize: '0.78rem' }}>
+                        Grade: <strong style={{ color: '#a78bfa' }}>{card.confidenceGrade || 'C'}</strong>
+                      </span>
+                    </div>
+
+                    <div className="h-levels-box">
+                      <div className="h-level-row">
+                        <span>Entry:</span>
+                        <span>${typeof card.entry === 'object' ? card.entry.price : card.entry}</span>
+                      </div>
+                      <div className="h-level-row">
+                        <span>SL:</span>
+                        <span>${card.sl}</span>
+                      </div>
+                      <div className="h-level-row">
+                        <span>TP1:</span>
+                        <span>${card.targets?.[0]}</span>
+                      </div>
+                    </div>
+
+                    {isExpanded && (
+                      <div className="h-details-expanded">
+                        {card.chartDataUrl && (
+                          <img
+                            src={card.chartDataUrl}
+                            alt="Analysis screenshot"
+                            style={{ width: '100%', borderRadius: '8px', objectFit: 'contain', maxHeight: '200px' }}
+                          />
+                        )}
+
+                        <div className="h-detail-section">
+                          <span className="detail-label">AI Reasoning</span>
+                          <p className="detail-value">{card.reasoning}</p>
+                        </div>
+
+                        {card.lessonsLearned && (
+                          <div className="lessons-alert">
+                            <span className="detail-label text-red">🧬 Post-Mortem Lesson</span>
+                            <p className="detail-value" style={{ fontStyle: 'italic' }}>{card.lessonsLearned}</p>
+                          </div>
+                        )}
+
+                        {card.closePrice && (
+                          <div className="h-level-row font-bold">
+                            <span>Close Price:</span>
+                            <span>${card.closePrice} {card.closedAt && `(at ${new Date(card.closedAt).toLocaleDateString()})`}</span>
+                          </div>
+                        )}
+
+                        {card.rMultiple != null && (
+                          <div className="h-level-row font-bold">
+                            <span>R-Normalized Outcome:</span>
+                            <span style={{ color: card.rMultiple > 0 ? '#10b981' : '#ef4444' }}>
+                              {card.rMultiple > 0 ? '+' : ''}{card.rMultiple}R
+                            </span>
+                          </div>
+                        )}
+                      </div>
+                    )}
+                    <div className="h-expand-hint">
+                      {isExpanded ? 'Click card to collapse' : 'Click card to view details'}
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {l === 'heatmap' && (
+        <div>
+          <div className="heatmap-controls">
+            <div className="form-group" style={{ flex: 1, marginBottom: 0 }}>
+              <label>{t.symbol}</label>
+              <input
+                type="text"
+                value={rl}
+                onChange={ev => setRl(ev.target.value.toUpperCase())}
+                placeholder="e.g. BTCUSDT"
+              />
+            </div>
+            <button className="btn-heatmap-start" onClick={() => toggleHeatmap(rl)}>
+              {t.apply}
+            </button>
+            <div className={`heatmap-status ${Ha ? 'connected' : 'disconnected'}`}>
+              <span className="status-dot"></span>
+              {Ha ? t.live : t.connecting}
+            </div>
+          </div>
+
+          <div className="heatmap-legend">
+            <span className="legend-item green-legend">{t.bidsLegend}</span>
+            <span className="legend-item red-legend">{t.asksLegend}</span>
+            <span className="legend-item white-legend">{t.midPriceLegend}</span>
+            <span className="legend-item whale-legend">{t.whaleLegend}</span>
+            <span className="legend-item" style={{ color: '#22d3ee' }}>〜 CVD</span>
+            <span className="legend-item" style={{ color: '#7c8f88' }}>│ Vol Profile</span>
+            {U?.sources && U.sources.length > 0 && (
+              <span className="legend-item" style={{ marginLeft: 'auto', color: '#4b6057' }}>
+                {t.sources} {U.sources.join(' · ')}
+              </span>
+            )}
+          </div>
+
+          <div className="heatmap-canvas-wrapper">
+            <canvas ref={heatmapCanvasRef} width={1100} height={580} className="heatmap-canvas" />
+          </div>
+
+          {U && (
+            <div>
+              <div className="heatmap-stats">
+                <div className="heatmap-stat">
+                  <div className="card-title">{t.midPrice}</div>
+                  <div className="stat-value cyan">${U.midPrice?.toFixed(2)}</div>
+                </div>
+                <div className="heatmap-stat">
+                  <div className="card-title">{t.topBidWall}</div>
+                  <div className="stat-value green">
+                    ${U.bids?.[0]?.price?.toFixed(2)} <small>({U.bids?.[0]?.qty?.toFixed(1)})</small>
+                  </div>
+                </div>
+                <div className="heatmap-stat">
+                  <div className="card-title">{t.topAskWall}</div>
+                  <div className="stat-value red">
+                    ${U.asks?.[0]?.price?.toFixed(2)} <small>({U.asks?.[0]?.qty?.toFixed(1)})</small>
+                  </div>
+                </div>
+                <div className="heatmap-stat">
+                  <div className="card-title">{t.spread}</div>
+                  <div className="stat-value">
+                    ${((U.asks?.[0]?.price || 0) - (U.bids?.[0]?.price || 0)).toFixed(3)}
+                  </div>
+                </div>
+              </div>
+
+              {/* Order Pressure and Alerts */}
+              {U.moneyFlow && (
+                <div className="money-flow-panel">
+                  <div className="mf-title">💹 Money Flow & Order Pressure</div>
+                  <div className="mf-grid">
+                    <div className="mf-card">
+                      <div className="card-title">Order Book Pressure</div>
+                      <div className="pressure-bar-wrap">
+                        <div className="pressure-bar">
+                          <div className="pressure-bid" style={{ width: `${U.moneyFlow.bidPct || 50}%` }} />
+                          <div className="pressure-ask" style={{ width: `${U.moneyFlow.askPct || 50}%` }} />
+                        </div>
+                      </div>
+                      <div className="pressure-labels">
+                        <span className="green">{U.moneyFlow.bidPct}% Bids</span>
+                        <span className="red">{U.moneyFlow.askPct}% Asks</span>
+                      </div>
+                      <div className={`mf-bias ${U.moneyFlow.bias === 'buy' ? 'green' : U.moneyFlow.bias === 'sell' ? 'red' : 'muted'}`}>
+                        Bias: {U.moneyFlow.bias?.toUpperCase()}
+                      </div>
+                    </div>
+
+                    <div className="mf-card">
+                      <div className="card-title">CVD Cumulative Delta</div>
+                      <div className="cvd-value" style={{ color: U.moneyFlow.cvd > 0 ? '#10b981' : U.moneyFlow.cvd < 0 ? '#ef4444' : '#cbd5e1' }}>
+                        {U.moneyFlow.cvd > 0 ? '+' : ''}{U.moneyFlow.cvd?.toFixed(1)}
+                      </div>
+                      <div className="card-title">24h Net Pressure</div>
+                      <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
+                        {U.moneyFlow.netPressure > 0 ? '🟢 Net Inflow' : U.moneyFlow.netPressure < 0 ? '🔴 Net Outflow' : '⚪ Neutral'}
+                      </div>
+                    </div>
+                  </div>
+
+                  {U.moneyFlow.imbalances && U.moneyFlow.imbalances.length > 0 && (
+                    <div className="imbalance-row">
+                      <span className="detail-label">Active Imbalances:</span>
+                      {U.moneyFlow.imbalances.map((imb, idx) => (
+                        <span key={idx} className={`imbalance-tag ${imb.side === 'bid' ? 'green-tag' : 'red-tag'}`}>
+                          {imb.side === 'bid' ? 'BUY' : 'SELL'} ${imb.price.toFixed(2)} ({imb.qty}x)
+                        </span>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              )}
+
+              {/* Smart Money alerts & liquidity clusters */}
+              {U.smartMoneyAlerts && U.smartMoneyAlerts.length > 0 && (
+                <div className="panel" style={{ marginBottom: '1.5rem' }}>
+                  <div className="whale-title">🔔 Smart Money Alerts</div>
+                  <div className="whale-grid">
+                    {U.smartMoneyAlerts.map((alrt, idx) => (
+                      <div key={idx} className={`whale-card ${alrt.side === 'bid' ? 'bid' : 'ask'}`}>
+                        <div className="whale-side">{alrt.side === 'bid' ? 'LIMIT BUY' : 'LIMIT SELL'}</div>
+                        <div className="whale-price">${alrt.price?.toFixed(2)}</div>
+                        <div className="whale-qty">{alrt.qty?.toFixed(1)} units</div>
+                        <div style={{ fontSize: '0.65rem', color: '#a78bfa', marginTop: '0.2rem' }}>{alrt.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Liquidity Clusters */}
+              {U.liquidityClusters && (
+                <div className="clusters-section">
+                  <div className="whale-title">🏦 Smart Money Liquidity Clusters (bin: ${U.liquidityClusters.binSize})</div>
+                  <div className="clusters-grid">
+                    <div className="cluster-col">
+                      <div className="cluster-col-title green">Support Clusters</div>
+                      {U.liquidityClusters.bids?.map((clst, idx) => (
+                        <div key={idx} className={`cluster-row bid-cluster ${clst.isWhale ? 'mega-wall' : ''}`}>
+                          <span className="cluster-price">
+                            ${clst.price.toFixed(2)} {clst.isWhale && <span className="mega-badge mega-bid">MEGA</span>}
+                          </span>
+                          <span className="cluster-vol">{clst.qty.toFixed(1)}</span>
+                          <span className="cluster-dist">{clst.distancePct?.toFixed(2)}%</span>
+                          <div className="cluster-bar-bg">
+                            <div className="cluster-bar-fill green-fill" style={{ width: `${Math.min((clst.qty / U.liquidityClusters.minVol) * 33, 100)}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="cluster-col">
+                      <div className="cluster-col-title red">Resistance Clusters</div>
+                      {U.liquidityClusters.asks?.map((clst, idx) => (
+                        <div key={idx} className={`cluster-row ask-cluster ${clst.isWhale ? 'mega-wall' : ''}`}>
+                          <span className="cluster-price">
+                            ${clst.price.toFixed(2)} {clst.isWhale && <span className="mega-badge">MEGA</span>}
+                          </span>
+                          <span className="cluster-vol">{clst.qty.toFixed(1)}</span>
+                          <span className="cluster-dist">+{Math.abs(clst.distancePct)?.toFixed(2)}%</span>
+                          <div className="cluster-bar-bg">
+                            <div className="cluster-bar-fill red-fill" style={{ width: `${Math.min((clst.qty / U.liquidityClusters.minVol) * 33, 100)}%` }} />
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                </div>
+              )}
+
+              {/* Footprint Profile */}
+              {U.footprint && (
+                <div className="footprint-section">
+                  <div className="footprint-header">
+                    <span className="footprint-title">⚡ Live Order Flow · 1-Min Footprint</span>
+                    <span className="footprint-meta">POC: ${U.footprint.poc?.toFixed(2)}</span>
+                    <span className={`absorption-badge ${U.footprint.absorption?.type === 'BUY_ABSORPTION' ? 'buy-absorption' : U.footprint.absorption?.type === 'SELL_ABSORPTION' ? 'sell-absorption' : 'none'}`}>
+                      {U.footprint.absorption?.type === 'BUY_ABSORPTION' ? '🟢 BUY ABSORPTION' : U.footprint.absorption?.type === 'SELL_ABSORPTION' ? '🔴 SELL ABSORPTION' : '⚪ NO ACTIVE ABSORPTION'}
+                    </span>
+                  </div>
+
+                  <div className="footprint-candle">
+                    {U.footprint.active?.map((fpNode, idx) => (
+                      <div key={idx} className={`fp-row ${fpNode.isPoc ? 'fp-poc' : ''}`}>
+                        <span className="fp-price">${fpNode.price.toFixed(2)}</span>
+                        <div className="fp-bar-wrap">
+                          <div className="fp-bar buy" style={{ width: `${(fpNode.buyVol / (fpNode.buyVol + fpNode.sellVol || 1)) * 100}%` }} />
+                          <div className="fp-bar sell" style={{ width: `${(fpNode.sellVol / (fpNode.buyVol + fpNode.sellVol || 1)) * 100}%` }} />
+                        </div>
+                        <span className="fp-vol-label">{fpNode.buyVol}x{fpNode.sellVol}</span>
+                        <span className={`fp-delta ${fpNode.delta > 0 ? 'pos' : 'neg'}`}>
+                          {fpNode.delta > 0 ? '+' : ''}{fpNode.delta}
+                        </span>
+                        {fpNode.isPoc && <span className="fp-poc-tag">POC</span>}
+                        {fpNode.isImbalance && <span className="fp-imb-tag">IMB</span>}
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {l === 'capital' && (
+        <div className="capital-flow-tab">
+          <div className="cf-header">
+            <h2>💰 Asset Class Capital Flow Rotation</h2>
+            <p className="muted-sm">{t.capitalDescription}</p>
+            <button className="btn-secondary" onClick={() => fetchCapital(true)} disabled={ks}>
+              {ks ? t.loading : t.capitalRefresh}
+            </button>
+          </div>
+
+          {!lt && !ks && <div className="cf-empty">{t.capitalEmpty}</div>}
+
+          {lt && (
+            <div className="cf-grid">
+              {Object.entries(lt).map(([asset, flow]) => {
+                if (asset === 'available') return null;
+                const isDown = flow['1d'] < 0;
+                return (
+                  <div
+                    key={asset}
+                    className="cf-card"
+                    style={{ borderLeftColor: isDown ? '#ef4444' : '#10b981' }}
+                  >
+                    <div className="cf-label">{asset}</div>
+                    <div className="cf-flow" style={{ color: isDown ? '#ef4444' : '#10b981' }}>
+                      {flow['1d'] > 0 ? '▲' : flow['1d'] < 0 ? '▼' : '■'} {flow['1d']?.toFixed(2)}%
+                    </div>
+                    <div className="cf-7d">7d change: {flow['7d']?.toFixed(2)}%</div>
+                    <div className="cf-sub">Price: ${flow.price}</div>
+                    <div className="cf-symbol">{flow.symbol}</div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {l === 'scanner' && (
+        <div className="scanner-tab">
+          <div className="scanner-header">
+            <div>
+              <h2 className="scanner-title">🔍 Market Scanner</h2>
+              <p className="scanner-subtitle">11 high-liquidity assets · AI-verified setups only · Manual trigger</p>
+            </div>
+            <div className="scanner-header-right">
+              <button className="scan-now-btn" onClick={triggerScan} disabled={Bt.isScanning}>
+                {Bt.isScanning ? (
+                  <>
+                    <div className="scan-spinner"></div>
+                    Scanning...
+                  </>
+                ) : '⚡ Scan Now'}
+              </button>
+              <div className="scanner-last-update">
+                <span className="update-dot"></span>
+                <span>Last updated: {Bt.lastScanAt ? new Date(Bt.lastScanAt).toLocaleTimeString() : 'Never'}</span>
+              </div>
+            </div>
+          </div>
+
+          {dn.length === 0 ? (
+            <div className="scanner-empty">
+              <div className="scanner-empty-icon">🔍</div>
+              <div className="scanner-empty-title">No signals currently active</div>
+              <div className="scanner-empty-sub">Run a manual scan using the button above to locate SM setups on crypto markets.</div>
+            </div>
+          ) : (
+            <div className="signal-grid">
+              {dn.map(sig => (
+                <div
+                  key={sig.id}
+                  className={`signal-card ${sig.direction === 'LONG' ? 'signal-long' : 'signal-short'} ${sig.is_new ? 'signal-new' : ''}`}
+                >
+                  <div className="signal-card-header">
+                    <span className="signal-symbol">{sig.symbol}</span>
+                    <span className={`signal-direction ${sig.direction === 'LONG' ? 'dir-long' : 'dir-short'}`}>
+                      {sig.direction}
+                    </span>
+                  </div>
+
+                  <div className="signal-status-row">
+                    <span className="signal-status" style={{ color: sig.status === 'ACTIVE' ? '#06b6d4' : '#fbbf24' }}>
+                      {sig.status}
+                    </span>
+                    <span className="signal-grade" style={{
+                      color: sig.grade === 'A+' || sig.grade === 'A' ? '#10b981' : sig.grade === 'B+' || sig.grade === 'B' ? '#fbbf24' : '#94a3b8'
+                    }}>
+                      Grade {sig.grade}
+                    </span>
+                    <span className="signal-pct">{sig.pct}% confidence</span>
+                    {sig.is_new && <span className="signal-new-badge">NEW</span>}
+                  </div>
+
+                  <div className="signal-levels">
+                    <div className="signal-level-row">
+                      <span className="level-label">Entry Range</span>
+                      <span className="level-value" style={{ color: '#22d3ee' }}>
+                        ${sig.entry?.low?.toFixed(4)} - ${sig.entry?.high?.toFixed(4)}
+                      </span>
+                    </div>
+                    <div className="signal-level-row">
+                      <span className="level-label">Stop Loss</span>
+                      <span className="level-value" style={{ color: '#ef4444' }}>${sig.sl?.toFixed(4)}</span>
+                    </div>
+                    <div className="signal-level-row">
+                      <span className="level-label">TP1</span>
+                      <span className="level-value" style={{ color: '#10b981' }}>${sig.targets?.[0]?.toFixed(4)}</span>
+                    </div>
+                    {sig.targets?.[1] && (
+                      <div className="signal-level-row">
+                        <span className="level-label">TP2</span>
+                        <span className="level-value" style={{ color: '#10b981' }}>${sig.targets?.[1]?.toFixed(4)}</span>
+                      </div>
+                    )}
+                  </div>
+
+                  <div className="signal-reasoning">
+                    {sig.reasoning}
+                  </div>
+
+                  {sig.positionSize > 0 && (
+                    <div style={{ fontSize: '0.75rem', color: '#fbbf24', background: '#fbbf2414', padding: '0.45rem 0.60rem', borderRadius: '6px' }}>
+                      🛡️ Recommended Size: <strong>{sig.positionSize} units</strong> (Risk: ${sig.riskAmount} / {sig.riskPct}%)
+                    </div>
+                  )}
+
+                  <div className="signal-footer">
+                    <span className="signal-tf">TF: {sig.timeframe}</span>
+                    <span>{new Date(sig.timestamp).toLocaleTimeString()}</span>
+                  </div>
+                </div>
+              ))}
+            </div>
+          )}
+        </div>
+      )}
+
+      {l === 'analytics' && (
+        <div className="capital-flow-tab">
+          <h2>{t.analyticsTitle}</h2>
+          <p className="muted-sm">{t.analyticsSubtitle}</p>
+
+          {ba && <div className="cf-empty">{t.loading}</div>}
+
+          {D && (
+            <div style={{ marginTop: '1.5rem' }}>
+              <div className="tracker-stats-bar">
+                <div className="tracker-stat-box">
+                  <span className="stat-label">Total Closed</span>
+                  <span className="stat-value">{D.summary?.closed ?? 0}</span>
+                </div>
+                <div className="tracker-stat-box">
+                  <span className="stat-label">Wins (TP)</span>
+                  <span className="stat-value green">{D.summary?.wins ?? 0}</span>
+                </div>
+                <div className="tracker-stat-box">
+                  <span className="stat-label">Losses (SL)</span>
+                  <span className="stat-value red">{D.summary?.losses ?? 0}</span>
+                </div>
+                <div className="tracker-stat-box">
+                  <span className="stat-label">Win Rate</span>
+                  <span className="stat-value cyan">{D.summary?.winRate ?? 0}%</span>
+                </div>
+                <div className="tracker-stat-box">
+                  <span className="stat-label">Expectancy</span>
+                  <span className="stat-value">{D.summary?.expectancy != null ? (D.summary.expectancy > 0 ? '+' : '') + D.summary.expectancy.toFixed(2) + ' R' : '0 R'}</span>
+                </div>
+              </div>
+
+              {/* Circuit Breaker Status */}
+              <div className="panel" style={{ marginBottom: '1.5rem', borderLeft: `4px solid ${D.circuitBreaker?.tripped ? '#ef4444' : '#10b981'}` }}>
+                <h3 style={{ fontSize: '1.1rem', color: D.circuitBreaker?.tripped ? '#ef4444' : '#10b981' }}>
+                  🛡️ {t.circuitBreaker}: {D.circuitBreaker?.tripped ? t.tripped : t.operational}
+                </h3>
+                <p className="muted-sm" style={{ marginTop: '0.2rem' }}>
+                  {t.breakerDesc}
+                </p>
+                <div className="h-level-row" style={{ margin: '0.8rem 0' }}>
+                  <span>Consecutive Fails: <strong>{D.circuitBreaker?.consecutiveFails} / 3</strong></span>
+                </div>
+                {D.circuitBreaker?.tripped && (
+                  <button className="btn-clear" onClick={resetBreaker}>
+                    {t.resetBreaker}
+                  </button>
+                )}
+              </div>
+
+              {/* Personal Leaderboard */}
+              <div className="panel" style={{ marginBottom: '1.5rem' }}>
+                <h3 style={{ fontSize: '1.1rem' }}>🏆 {t.leaderboardTitle}</h3>
+                <p className="muted-sm">{t.leaderboardDesc}</p>
+                <div className="levels-grid" style={{ marginTop: '1rem' }}>
+                  <div className="level-card">
+                    <div className="card-title">{t.currentWinStreak}</div>
+                    <div className="level-value green">{D.leaderboard?.currentWinStreak || 0}</div>
+                  </div>
+                  <div className="level-card">
+                    <div className="card-title">{t.bestWinStreak}</div>
+                    <div className="level-value green">{D.leaderboard?.bestWinStreak || 0}</div>
+                  </div>
+                  <div className="level-card">
+                    <div className="card-title">{t.worstLossStreak}</div>
+                    <div className="level-value red">{D.leaderboard?.worstLossStreak || 0}</div>
+                  </div>
+                </div>
+                <div className="levels-grid" style={{ marginTop: '0.5rem' }}>
+                  <div className="level-card">
+                    <div className="card-title">{t.bestRTrade}</div>
+                    <div className="level-value green">+{D.leaderboard?.bestRTrade?.toFixed(1) || 0}R</div>
+                  </div>
+                  <div className="level-card">
+                    <div className="card-title">{t.worstRTrade}</div>
+                    <div className="level-value red">{D.leaderboard?.worstRTrade?.toFixed(1) || 0}R</div>
+                  </div>
+                  <div className="level-card">
+                    <div className="card-title">{t.totalR}</div>
+                    <div className="level-value" style={{ color: D.leaderboard?.totalR >= 0 ? '#10b981' : '#ef4444' }}>
+                      {D.leaderboard?.totalR >= 0 ? '+' : ''}{D.leaderboard?.totalR?.toFixed(1) || 0}R
+                    </div>
+                  </div>
+                </div>
+              </div>
+
+              {/* Directional statistics */}
+              {D.directionStats && (
+                <div className="panel">
+                  <h3 style={{ fontSize: '1.1rem', marginBottom: '0.8rem' }}>{t.directionStats}</h3>
+                  <div className="levels-grid">
+                    <div className="level-card">
+                      <div className="card-title" style={{ color: '#10b981' }}>🟢 LONG SETUPS</div>
+                      <div className="level-value green">{D.byDirection?.LONG?.winRate ?? 0}%</div>
+                      <div className="muted-sm">
+                        {D.byDirection?.LONG?.wins ?? 0} Wins / {D.byDirection?.LONG?.losses ?? 0} Losses
+                      </div>
+                    </div>
+                    <div className="level-card">
+                      <div className="card-title" style={{ color: '#ef4444' }}>🔴 SHORT SETUPS</div>
+                      <div className="level-value red">{D.byDirection?.SHORT?.winRate ?? 0}%</div>
+                      <div className="muted-sm">
+                        {D.byDirection?.SHORT?.wins ?? 0} Wins / {D.byDirection?.SHORT?.losses ?? 0} Losses
+                      </div>
+                    </div>
+                  </div>
+                </div>
+              )}
+            </div>
+          )}
+        </div>
+      )}
+
+      {l === 'coach' && (
+        <div className="coach-tab">
+          <p className="muted-sm">{t.coachDescription}</p>
+
+          <div className="coach-messages">
+            {Es.length === 0 ? (
+              <div className="coach-empty">{t.coachEmpty}</div>
+            ) : (
+              Es.map((msg, idx) => (
+                <div key={idx} className={`coach-msg ${msg.role}`}>
+                  <span className="coach-role">{msg.role === 'user' ? t.coachYou : 'ARIS Coach'}</span>
+                  <div className="coach-bubble">{msg.content}</div>
+                </div>
+              ))
+            )}
+            {cr && (
+              <div className="coach-msg assistant">
+                <span className="coach-role">ARIS Coach</span>
+                <div className="coach-bubble" style={{ fontStyle: 'italic', opacity: 0.7 }}>
+                  {t.coachThinking}
+                </div>
+              </div>
+            )}
+          </div>
+
+          <div className="coach-input-row">
+            <input
+              type="text"
+              className="coach-input"
+              placeholder={t.coachPlaceholder}
+              value={Ts}
+              onChange={ev => setTsInput(ev.target.value)}
+              onKeyDown={ev => ev.key === 'Enter' && handleChatSend()}
+              disabled={cr}
+            />
+            <button className="btn-tv-fetch" onClick={handleChatSend} disabled={cr || !Ts.trim()}>
+              {t.coachSend}
+            </button>
+          </div>
+        </div>
+      )}
+
+      {l === 'early' && (
+        <div className="early-tab">
+          <div className="cf-header">
+            <h2>🔎 Early Signals scanner</h2>
+            <p className="muted-sm">{t.earlyDescription}</p>
+            <button className="btn-secondary" onClick={() => fetchEarly(true)} disabled={sl}>
+              {sl ? t.loading : t.refresh}
+            </button>
+          </div>
+
+          {sl && <div className="cf-empty">{t.loading}</div>}
+
+          {!st && !sl && <div className="cf-empty">{t.earlyEmpty}</div>}
+
+          {st?.available === false && <div className="cf-empty">⚠️ {st.error || 'N/A'}</div>}
+
+          {st?.candidates && st.candidates.length > 0 && (
+            <div className="early-grid">
+              {st.candidates.map((coin, idx) => (
+                <div key={idx} className="early-card">
+                  <div className="early-header">
+                    <div>
+                      <div className="early-name">
+                        {coin.name} <span className="early-sym">{coin.symbol}</span>
+                      </div>
+                      <div className="early-cats">{(coin.categories || []).slice(0, 3).join(', ') || '—'}</div>
+                    </div>
+                    <div className={`early-badge ${coin.listedOnBinance ? 'yes' : 'no'}`}>
+                      {coin.listedOnBinance ? 'Binance' : 'OTC'}
+                    </div>
+                  </div>
+
+                  <div className="early-metrics">
+                    <div className="early-metric">
+                      <span className="early-label">MCap</span>
+                      <span>${(coin.marketCap / 1000000).toFixed(1)}M</span>
+                    </div>
+                    <div className="early-metric">
+                      <span className="early-label">Vol 24h</span>
+                      <span>${(coin.volume24h / 1000000).toFixed(1)}M</span>
+                    </div>
+                    <div className="early-metric">
+                      <span className="early-label">Chg 24h</span>
+                      <span style={{ color: coin.priceChange24h >= 0 ? '#10b981' : '#ef4444' }}>
+                        {coin.priceChange24h?.toFixed(1)}%
+                      </span>
+                    </div>
+                    <div className="early-metric">
+                      <span className="early-label">Score</span>
+                      <span>{coin.score?.toFixed(0)}</span>
+                    </div>
+                  </div>
+
+                  {coin.thesis && (
+                    <div className="early-thesis">
+                      {coin.thesis}
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          )}
+
+          {st?.candidates?.length === 0 && !sl && <div className="cf-empty">{t.noCandidates}</div>}
+        </div>
+      )}
+    </div>
+  );
+}
