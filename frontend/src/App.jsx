@@ -229,7 +229,10 @@ const TRANSLATIONS = {
   }
 };
 
-const API_BASE = `http://${window.location.hostname}:5000`;
+// Relative base so it works both locally (vite proxies /api -> :5000) and on
+// the deployed host (same origin serves both UI and API). Hardcoding :5000
+// breaks on Fly because the proxy exposes the API on the default HTTPS port.
+const API_BASE = '';
 
 export default function App() {
   const [e, setE] = useState(() => localStorage.getItem('trading_analyzer_lang') || 'el');
