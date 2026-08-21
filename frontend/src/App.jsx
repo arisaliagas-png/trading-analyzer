@@ -1696,7 +1696,7 @@ export default function App() {
                 </div>
                 <div className="tracker-stat-box">
                   <span className="stat-label">Expectancy</span>
-                  <span className="stat-value">{D.summary?.expectancy != null ? (D.summary.expectancy > 0 ? '+' : '') + D.summary.expectancy.toFixed(2) + ' R' : '0 R'}</span>
+                  <span className="stat-value">{D.summary?.expectancy != null ? (D.summary.expectancy > 0 ? '+' : '') + Number(D.summary.expectancy).toFixed(2) + ' R' : '0 R'}</span>
                 </div>
               </div>
 
