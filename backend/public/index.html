@@ -4,6 +4,9 @@
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <title>🧙 AI Trading Analyzer</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com" />
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin />
+    <link href="https://fonts.googleapis.com/css2?family=Sora:wght@400;600;700;800&family=JetBrains+Mono:wght@400;700&display=swap" rel="stylesheet" />
     <script>
       // Surface runtime errors instead of a blank white screen.
       // Registered BEFORE the module script so it catches load-time crashes.
@@ -14,7 +17,7 @@
         window.__errs.push(msg);
         var el = document.getElementById('root');
         if (!el) return;
-        el.innerHTML = '<pre style="color:#f55;background:#111;padding:16px;white-space:pre-wrap;font-family:monospace;border:1px solid #552222;border-radius:8px;">'
+        el.innerHTML = '<pre style="color:#f55;background:#111;padding:16px;white-space:pre-wrap;font-family:monospace;">'
           + window.__errs.map(function(m){return 'JS Error: ' + m;}).join('\n\n') + '</pre>';
       }
       window.addEventListener('error', function(e) {
@@ -25,10 +28,11 @@
         showErr('Promise rejection: ' + r);
       });
     </script>
-    <script type="module" crossorigin src="/assets/index-DyQrmwl8.js"></script>
-    <link rel="stylesheet" crossorigin href="/assets/index-BDL59Qzq.css">
+    <script type="module" crossorigin src="/assets/app.js"></script>
+    <link rel="stylesheet" crossorigin href="/assets/app.css" />
   </head>
   <body>
     <div id="root"></div>
   </body>
 </html>
+```
