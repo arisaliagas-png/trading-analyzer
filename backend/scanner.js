@@ -168,6 +168,11 @@ async function scanAsset(symbol, scanId) {
       }
     } catch { /* aggregator not ready — fall back to candle-derived bias */ }
 
+    // 1b. Fetch real-time news BEFORE building the engine context, so the
+    // newsSentiment actually reaches getLiveIndicators (and the AI prompt).
+    let newsContext = null;
+    try { newsContext = await fetchAssetNews(symbol); } catch { newsContext = null; }
+
     const ind = await getLiveIndicators(symbol, SCAN_TIMEFRAME, liveWhaleWalls, null, '', liveCvdBias, newsContext?.sentimentScore ?? null);
     if (!ind.available || !ind.aris) return null;
 
@@ -248,11 +253,10 @@ Return ONLY valid JSON (no markdown, no extra text):
 `;
 
     // 2b. Build live contexts (order book, indicators, news) — same as Analyzer
-  // so the scanner sees the SAME data the AI would see in a full analysis.
-  const orderbookContext = buildOrderbookContext();
-  const indicatorContext = buildIndicatorContext(ind, symbol, SCAN_TIMEFRAME);
-  let newsContext = null;
-  try { newsContext = await fetchAssetNews(symbol); } catch { newsContext = null; }
+    // so the scanner sees the SAME data the AI would see in a full analysis.
+    // NOTE: newsContext is already fetched above (before getLiveIndicators) — reuse it here.
+    const orderbookContext = buildOrderbookContext();
+    const indicatorContext = buildIndicatorContext(ind, symbol, SCAN_TIMEFRAME);
 
     const aiResponse = await analyzeChart(
       null, null,
@@ -349,7 +353,7 @@ Return ONLY valid JSON (no markdown, no extra text):
     const effectiveStatus = veto.veto
       ? 'PENDING'
       : (aiResult.setupStatus === 'WAIT' ? 'PENDING' : aiResult.setupStatus);
-    if (aiResult.setupStatus !== 'WAIT' && aiResult.confidenceGrade !== 'D' || (aiResult.setupStatus === 'WAIT' && aiResult.confidenceGrade !== 'D')) {
+    if (aiResult.confidenceGrade !== 'D') {
 
       // ── [4A] Deterministic position sizing (no AI involvement) ──
       const sizing = calcPositionSize(
