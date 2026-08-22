@@ -100,7 +100,14 @@ export async function registerTrade(setup) {
     is_new: 1, created_at: new Date().toISOString()
   }, { onConflict: 'id' });
   if (error) dbLog.error({ err: error.message }, 'Supabase registerTrade failed');
-  else dbLog.info({ id: setup.id, instrument: setup.instrument, direction }, 'Trade registered (Supabase)');
+  else {
+    // Ensure grade/pct are persisted — upsert sometimes drops them on conflict
+    const { error: gErr } = await (await client()).from('trades')
+      .update({ grade: setup.grade ?? null, confidence_pct: setup.pct ?? null })
+      .eq('id', setup.id);
+    if (gErr) dbLog.error({ err: gErr.message }, 'Supabase grade update failed');
+    dbLog.info({ id: setup.id, instrument: setup.instrument, direction }, 'Trade registered (Supabase)');
+  }
 }
 
 export async function upsertSignal(signal) {
@@ -108,9 +115,12 @@ export async function upsertSignal(signal) {
     .select('*').eq('instrument', signal.symbol).eq('direction', signal.direction)
     .in('status', ['PENDING', 'ACTIVE']).limit(1).maybeSingle();
   if (existing) {
+    // Migrate legacy Date.now()-based id → deterministic symbol_direction id
+    // AND write grade/pct in the same operation, so no null-grade record lingers.
     const { error } = await (await client()).from('trades').update({
-      status: signal.status, grade: signal.grade, confidence_pct: signal.pct,
-      reasoning: signal.reasoning, is_new: existing.is_new,
+      id:          signal.id,
+      status:      signal.status, grade: signal.grade, confidence_pct: signal.pct,
+      reasoning:   signal.reasoning, is_new: existing.is_new,
       sl: signal.sl ?? null, entry_low: signal.entry?.low ?? null, entry_high: signal.entry?.high ?? null,
       tp1: signal.targets?.[0] ?? null, tp2: signal.targets?.[1] ?? null
     }).eq('id', existing.id);

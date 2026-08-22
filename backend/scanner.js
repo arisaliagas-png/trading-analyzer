@@ -196,8 +196,7 @@ async function scanAsset(symbol, scanId) {
       }
     }
 
-    const MAX_PIVOT_AGE = 40; // 40h on 1h chart — allows slow-grind setups (pivot up to ~40 candles old).
-                              // Was 24; too strict — a pivot just 1 candle older (25) wrongly killed valid setups.
+    const MAX_PIVOT_AGE = 100; // 100h on 1h chart — generous; a pivot 66-94 candles old is still a valid SMC setup.
     const isFresh = pivotAge <= MAX_PIVOT_AGE;
 
     if (!hasSetup || !hasDecentScore || !isFresh) {
@@ -273,7 +272,13 @@ Return ONLY valid JSON (no markdown, no extra text):
       ? aiResponse
       : { setupStatus: 'PENDING', confidenceGrade: engine.confidenceGrade ?? 'C', confidencePct: engine.confidencePct ?? 50, reasoning: 'Engine-verified setup.' };
 
-    scannerLog.info({ symbol, scanId, status: aiResult.setupStatus, grade: aiResult.confidenceGrade }, 'AI verification result');
+    // Defensive fallback: if the AI returned a null/undefined grade or pct
+    // (e.g. schema mismatch swallowed upstream), fall back to the quant engine's
+    // own computed grade so the UI never shows a blank "Grade %".
+    const finalGrade = aiResult.confidenceGrade ?? engine.confidenceGrade ?? 'C';
+    const finalPct   = aiResult.confidencePct   ?? engine.confidencePct   ?? 50;
+
+    scannerLog.info({ symbol, scanId, status: aiResult.setupStatus, grade: finalGrade, pct: finalPct }, 'AI verification result');
 
     // 2c. Price-in-zone gate: if current price is NOT inside the OTE entry zone,
     // the setup is not yet triggerable — force PENDING (never ACTIVE). This prevents
@@ -378,8 +383,8 @@ Return ONLY valid JSON (no markdown, no extra text):
         targets:      [ote.tp1, ote.tp2],
         rr:           parseFloat((signalRr ?? rr).toFixed(2)),
         status:       effectiveStatus,
-        grade:        aiResult.confidenceGrade,
-        pct:          aiResult.confidencePct,
+        grade:        finalGrade,
+        pct:          finalPct,
         reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (aiResult.reasoning || ''),
         timestamp:    new Date().toISOString(),
         // ── Risk fields (server-computed, not AI) ──
@@ -404,6 +409,8 @@ Return ONLY valid JSON (no markdown, no extra text):
           sl:         ote.sl,
           targets:    [ote.tp1, ote.tp2],
           indicators: ind.arisContext ? [ind.arisContext] : [],
+          grade:      finalGrade,
+          pct:        finalPct,
           reasoning:  `[SCANNER] ${aiResult.reasoning || ''}`
         });
       } catch (trackErr) {
