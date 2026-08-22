@@ -342,6 +342,29 @@ Return ONLY valid JSON (no markdown, no extra text):
       signalRr = newRr;
     }
 
+    // 4b2. ATR-FLOOR SL VETO (structural SL depth — PTS "SL ≥ 1×ATR" rule).
+    // A structurally too-tight stop loses measured (PTS data: WR 15% when SL<0.8×ATR).
+    //   • slRisk < 0.8×ATR  → HARD VETO (reject entirely, like a structural fail)
+    //   • 0.8×ATR ≤ slRisk < 1.0×ATR → DOWNGRADE to PENDING + note (floor breached)
+    // The widen logic above is %-based and can still produce a stop narrower than
+    // ATR on volatile assets, so this catches the volatility-adjusted case.
+    const atr14 = engine.atr14 ?? null;
+    const slRisk = Math.abs(idealEntry - ote.sl);
+    let atrFloorDowngrade = false;
+    let atrFloorReason = null;
+    if (atr14 != null && atr14 > 0) {
+      const slAtrRatio = slRisk / atr14;
+      if (slAtrRatio < 0.8) {
+        scannerLog.warn({ symbol, scanId, slRisk, atr14, ratio: slAtrRatio.toFixed(2) }, 'ATR-FLOOR VETO — SL < 0.8×ATR (structurally too tight)');
+        await removeSignalByInstrument(symbol);
+        return null;
+      } else if (slAtrRatio < 1.0) {
+        atrFloorDowngrade = true;
+        atrFloorReason = `SL ${(slAtrRatio * 100).toFixed(0)}% of ATR — below 1×ATR structural floor (≥1×ATR required)`;
+        scannerLog.warn({ symbol, scanId, slRisk, atr14, ratio: slAtrRatio.toFixed(2) }, 'ATR-FLOOR DOWNGRADE — SL < 1×ATR');
+      }
+    }
+
     // 4c. LESSON-APPLICATION LAYER (hard veto)
     // If this symbol+direction has recorded failures, enforce the lessons as
     // data-driven rules. A violation downgrades the setup to PENDING (WAIT) so it
@@ -356,7 +379,7 @@ Return ONLY valid JSON (no markdown, no extra text):
     // 5. Accept grades ≥ C and statuses ACTIVE/PENDING.
     // WAIT is treated as PENDING (kept in DB for re-scan) — the engine isn't
     // ready yet but the setup is real, so we don't delete it.
-    const effectiveStatus = veto.veto
+    const effectiveStatus = (veto.veto || atrFloorDowngrade)
       ? 'PENDING'
       : (aiResult.setupStatus === 'WAIT' ? 'PENDING' : aiResult.setupStatus);
     if (aiResult.confidenceGrade !== 'D') {
@@ -385,13 +408,27 @@ Return ONLY valid JSON (no markdown, no extra text):
         status:       effectiveStatus,
         grade:        finalGrade,
         pct:          finalPct,
-        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (aiResult.reasoning || ''),
+        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (aiResult.reasoning || ''),
         timestamp:    new Date().toISOString(),
         // ── Risk fields (server-computed, not AI) ──
         positionSize: sizing.positionSize,
         riskAmount:   sizing.riskAmount,
         riskPct:      sizing.riskPct,
-        sizingNote:   sizing.note
+        sizingNote:   sizing.note,
+        // ── Zone invalidation (PTS "ακύρωση" rule): price closing beyond this
+        // level without reclaim cancels the setup BEFORE it reaches the SL. ──
+        invalidation: tradeDir === 'LONG'
+          ? (ote.entry?.high ?? ote.entry?.price)
+          : (ote.entry?.low ?? ote.entry?.price),
+        atr14:        atr14 ?? null,
+        // Risk metadata persisted inside indicator_snapshot JSON (Supabase has no
+        // dedicated columns for these) so the UI can show ATR-floor + invalidation.
+        indicators: [
+          { __risk: true, invalidation: (tradeDir === 'LONG'
+              ? (ote.entry?.high ?? ote.entry?.price)
+              : (ote.entry?.low ?? ote.entry?.price)),
+            atr14: atr14 ?? null, atrFloor: atrFloorReason || null }
+        ]
       };
 
       // Upsert into SQLite (locks original levels if symbol already exists)
@@ -400,6 +437,12 @@ Return ONLY valid JSON (no markdown, no extra text):
       // Register in trade tracker (same DB — idempotent via INSERT OR IGNORE)
       try {
         const { registerTradeSetup } = await import('./tradeTracker.js');
+        const riskMeta = {
+          __risk: true,
+          invalidation: signal.invalidation,
+          atr14: signal.atr14,
+          atrFloor: atrFloorReason || null
+        };
         registerTradeSetup({
           id:         signal.id,
           instrument: symbol,
@@ -408,7 +451,7 @@ Return ONLY valid JSON (no markdown, no extra text):
           entry:      ote.entry,
           sl:         ote.sl,
           targets:    [ote.tp1, ote.tp2],
-          indicators: ind.arisContext ? [ind.arisContext] : [],
+          indicators: ind.arisContext ? [ind.arisContext, riskMeta] : [riskMeta],
           grade:      finalGrade,
           pct:        finalPct,
           reasoning:  `[SCANNER] ${aiResult.reasoning || ''}`

@@ -1373,6 +1373,12 @@ export function finalizeArisScore(raw, mtfScoreStr, extAdx = null, extMacdHist =
   else scoreLabel = '❌ WEAK';
 
   const { _ohlcv, ...rawClean } = raw; // strip private price arrays from output
+  // ATR(14) for the scanner's SL-depth-floor veto (SL must be >= 1×ATR).
+  // Computed from the private _ohlcv that computeArisScore kept for exactly this.
+  let atr14 = null;
+  if (_ohlcv && _ohlcv.highs && _ohlcv.lows && _ohlcv.closes) {
+    atr14 = computeATR(_ohlcv.highs, _ohlcv.lows, _ohlcv.closes, 14);
+  }
   return {
     ...rawClean,
     ufBullScore: ufScoreResult.bullScore,
@@ -1393,6 +1399,7 @@ export function finalizeArisScore(raw, mtfScoreStr, extAdx = null, extMacdHist =
     ote: executionSetupFinal,
     executionStrategy: executionSetupFinal?.strategy ?? 'PULLBACK_OTE',
     executionNote: executionSetupFinal?.note ?? '📐 PULLBACK OTE (Waiting for Fibonacci retracement retest)',
+    atr14
   };
 }
 

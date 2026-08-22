@@ -122,14 +122,16 @@ export async function upsertSignal(signal) {
       status:      signal.status, grade: signal.grade, confidence_pct: signal.pct,
       reasoning:   signal.reasoning, is_new: existing.is_new,
       sl: signal.sl ?? null, entry_low: signal.entry?.low ?? null, entry_high: signal.entry?.high ?? null,
-      tp1: signal.targets?.[0] ?? null, tp2: signal.targets?.[1] ?? null
+      tp1: signal.targets?.[0] ?? null, tp2: signal.targets?.[1] ?? null,
+      indicator_snapshot: JSON.stringify(signal.indicators || [])
     }).eq('id', existing.id);
     if (error) dbLog.error({ err: error.message }, 'Supabase upsertSignal failed');
   } else {
     await registerTrade({
       id: signal.id, instrument: signal.symbol, timeframe: signal.timeframe, direction: signal.direction,
       entry: signal.entry, sl: signal.sl, targets: signal.targets, rr: signal.rr, status: signal.status,
-      grade: signal.grade, pct: signal.pct, reasoning: signal.reasoning, strategy: signal.strategy ?? null, is_new: 1
+      grade: signal.grade, pct: signal.pct, reasoning: signal.reasoning, strategy: signal.strategy ?? null, is_new: 1,
+      indicators: signal.indicators || []
     });
   }
 }
