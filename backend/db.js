@@ -31,6 +31,7 @@ export const upsertSignal         = backend.upsertSignal;
 export const updateTradeStatus    = backend.updateTradeStatus;
 export const markEnteredZone      = backend.markEnteredZone;
 export const updateTradeLevels    = backend.updateTradeLevels;
+export const updateTradeMeta      = backend.updateTradeMeta;
 export const removeSignalByInstrument = backend.removeSignalByInstrument;
 export const recordPrice          = backend.recordPrice;
 export const saveLesson           = backend.saveLesson;

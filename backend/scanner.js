@@ -86,6 +86,7 @@ import {
   upsertSignal,
   removeSignalByInstrument,
   getActiveTrades,
+  updateTradeMeta,
   hasActiveTrade,
   clearIsNew
 } from './db.js';
@@ -560,6 +561,82 @@ Return ONLY valid JSON (no markdown, no extra text):
 }
 
 // ─────────────────────────────────────────────
+// BOARD-LEVEL META-ANALYSIS (PTS "ΒΑΘΙΑ ΔΙΥΛΙΣΗ")
+// After all per-asset scans, look at the BOARD as a whole. If the vast majority
+// of live setups point the same direction, that is ONE correlated bet, not N
+// independent opportunities — a systemic tail-risk the per-asset engine can't see.
+// We don't veto (each setup already passed its own gates); we TAG every signal in
+// the dominant cluster with a correlation-risk flag so the user/AI sees the concentration.
+const BOARD_LONG_PCT_THRESHOLD = 70; // ≥70% of live setups LONG → long-cluster risk
+const BOARD_MIN_SIGNALS = 5;         // need enough signals for the stat to mean anything
+
+export async function analyzeBoard(scanId) {
+  try {
+    const trades = await getActiveTrades();
+    if (!trades || trades.length < BOARD_MIN_SIGNALS) {
+      scannerLog.info({ scanId, count: trades?.length }, 'Board analysis skipped (too few signals)');
+      return null;
+    }
+    const total = trades.length;
+    const longs = trades.filter(t => (t.direction || '').toUpperCase() === 'LONG').length;
+    const shorts = total - longs;
+    const longPct = +((longs / total) * 100).toFixed(0);
+    const shortPct = 100 - longPct;
+
+    // Dominant cluster = the side with the larger count.
+    const dominantDir = longs >= shorts ? 'LONG' : 'SHORT';
+    const dominantCount = Math.max(longs, shorts);
+    const dominantPct = dominantDir === 'LONG' ? longPct : shortPct;
+    const correlationRisk = dominantPct >= BOARD_LONG_PCT_THRESHOLD;
+
+    const summary = {
+      total,
+      longs,
+      shorts,
+      longPct,
+      shortPct,
+      dominantDir,
+      dominantCount,
+      dominantPct,
+      correlationRisk,
+      note: correlationRisk
+        ? `⚠ BOARD CORRELATION: ${dominantCount}/${total} live setups are ${dominantDir} (${dominantPct}%) — one concentrated ${dominantDir} bet, not ${total} independent trades. Size accordingly; a single macro shock hits all of them.`
+        : `Board balanced-ish: ${longs} LONG / ${shorts} SHORT (${longPct}%/${shortPct}%). No dominant single-direction cluster.`
+    };
+
+    scannerLog.info({ scanId, ...summary }, 'Board-level meta-analysis');
+
+    // Tag every signal that belongs to the dominant cluster.
+    if (dominantCount > 0) {
+      for (const t of trades) {
+        const dir = (t.direction || '').toUpperCase();
+        if (dir === dominantDir) {
+          let snap = [];
+          try { snap = JSON.parse(t.indicator_snapshot || '[]'); } catch { snap = []; }
+          if (!Array.isArray(snap)) snap = [];
+          const board = snap.find(s => s && s.__board);
+          const meta = {
+            __board: true,
+            clusterDir: dominantDir,
+            clusterSize: dominantCount,
+            clusterPct: dominantPct,
+            correlationRisk,
+            note: summary.note
+          };
+          if (board) Object.assign(board, meta);
+          else snap.push(meta);
+          await updateTradeMeta(t.id, JSON.stringify(snap));
+        }
+      }
+    }
+    return summary;
+  } catch (e) {
+    scannerLog.warn({ scanId, err: e.message }, 'Board analysis failed (non-fatal)');
+    return null;
+  }
+}
+
+// ─────────────────────────────────────────────
 // SCAN ALL ASSETS
 // ─────────────────────────────────────────────
 export async function scanAllAssets() {
@@ -586,6 +663,10 @@ export async function scanAllAssets() {
     await scanAsset(asset, scanId, macro);
     await new Promise(r => setTimeout(r, 2000)); // 2s pause between assets
   }
+
+  // Board-level meta-analysis: tag correlated clusters across the whole board.
+  await analyzeBoard(scanId);
+
   scannerLog.info({ scanId }, 'Scan complete');
 }
 

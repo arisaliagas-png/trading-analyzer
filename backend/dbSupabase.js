@@ -162,6 +162,14 @@ export async function updateTradeLevels(id, levels) {
   if (error) dbLog.error({ err: error.message }, 'Supabase updateTradeLevels failed');
 }
 
+// Patch the indicator_snapshot JSON for an existing trade by id (used by the
+// board-level meta-analysis pass to tag correlated clusters without disturbing
+// levels/grade/etc).
+export async function updateTradeMeta(id, indicator_snapshot) {
+  const { error } = await (await client()).from('trades').update({ indicator_snapshot }).eq('id', id);
+  if (error) dbLog.error({ err: error.message }, 'Supabase updateTradeMeta failed');
+}
+
 export async function removeSignalByInstrument(instrument) {
   const { count, error } = await (await client()).from('trades')
     .select('*', { count: 'exact', head: true }).eq('instrument', instrument).eq('status', 'PENDING');
