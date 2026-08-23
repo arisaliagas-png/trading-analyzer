@@ -74,6 +74,44 @@ function applyLessonVeto({ engine, tradeDir, liveCvdBias }) {
     }
   }
 
+  // R4 — Candle/Footprint flow conflict (from SHORT post-mortems):
+  //   SHORT + bullish CMF (+0.1281) opposed bearish bias, or extreme BUY FP
+  //   imbalance (> +300k) during a RELEASED/BULLISH squeeze → short trap.
+  //   Mirrored for LONG. Only fires when conviction is weak (mega < 15), EXCEPT
+  //   for extreme FP imbalance which is an unconditional trap regardless of score.
+  const cmf = engine.cmf ?? 0;
+  const fpImb = engine.fpImbalance ?? 0; // + = buy-side imbalance, - = sell-side
+  const score = engine.megaScore ?? 0;
+  if (tradeDir === 'SHORT') {
+    if (cmf > 0.05 && score < 15) {
+      violated.push('R4_FLOW');
+      reasons.push(`Bullish CMF ${cmf.toFixed(3)} opposes SHORT with weak conviction (mega ${score}/28) — long-flow trap (lesson ETHUSDT)`);
+    }
+    if (fpImb > 300000) {
+      violated.push('R4_FLOW');
+      reasons.push(`Extreme BUY FP imbalance (+${(fpImb/1000).toFixed(0)}k) invalidates SHORT — squeeze breakout trap (lesson DOTUSDT)`);
+    }
+  } else if (tradeDir === 'LONG') {
+    if (cmf < -0.05 && score < 15) {
+      violated.push('R4_FLOW');
+      reasons.push(`Bearish CMF ${cmf.toFixed(3)} opposes LONG with weak conviction (mega ${score}/28) — short-flow trap`);
+    }
+    if (fpImb < -300000) {
+      violated.push('R4_FLOW');
+      reasons.push(`Extreme SELL FP imbalance (${(fpImb/1000).toFixed(0)}k) invalidates LONG — squeeze breakout trap`);
+    }
+  }
+
+  // R5 — Entry OUTSIDE OTE zone with low conviction (from SHORT lesson:
+  //   price OUTSIDE OTE + mega 12/28 + C-grade = late/exhausted entry).
+  //   Symmetric — fires when price has NOT retested the optimal entry and the
+  //   mega score is too low to justify a premature entry.
+  const oteInside = engine.oteRetest === true;
+  if (!oteInside && score < 15) {
+    violated.push('R5_OTE');
+    reasons.push(`Entry OUTSIDE OTE zone with low conviction (mega ${score}/28) — late/exhausted entry trap (lesson ETHUSDT/DOTUSDT)`);
+  }
+
   if (violated.length === 0) return { veto: false, reason: null, violatedRules: [] };
   return {
     veto: true,
