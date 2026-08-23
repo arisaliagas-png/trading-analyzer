@@ -678,12 +678,43 @@ export async function scanAllAssets() {
 export async function getActiveSignals() {
   const trades = await getActiveTrades();
 
+  // Unwrap the indicator_snapshot meta (__risk/__macro/__flow/__board) into
+  // flat, UI-friendly fields so the frontend can read them WITHOUT parsing the
+  // JSON blob. Backend-only: this is a projection, not a DB change.
+  // NOTE: getActiveTrades() already parses indicator_snapshot into `indicators`
+  // (via hydrate), so we read that — not the raw string column.
+  const enriched = trades.map(t => {
+    const snap = Array.isArray(t.indicators) ? t.indicators
+                : (() => { try { return JSON.parse(t.indicator_snapshot || '[]'); } catch { return []; } })();
+    const risk = snap.find(s => s && s.__risk) || {};
+    const macro = snap.find(s => s && s.__macro) || {};
+    const flow = snap.find(s => s && s.__flow) || {};
+    const board = snap.find(s => s && s.__board) || {};
+    return {
+      ...t,
+      // flat meta for the UI
+      atr14:          risk.atr14 ?? null,
+      atrFloor:       risk.atrFloor ?? null,
+      invalidation:   risk.invalidation ?? null,
+      fgValue:        macro.fgValue ?? null,
+      fgSignal:       macro.fgSignal ?? 0,
+      dxyDirection:   macro.dxyDirection ?? null,
+      dxyChange:      macro.dxyChange ?? null,
+      doi1h:          flow.doi1h ?? null,
+      flowQuality:    flow.flowQuality ?? 'N/A',
+      boardClusterDir:    board.clusterDir ?? null,
+      boardClusterPct:    board.clusterPct ?? null,
+      boardCorrelationRisk: board.correlationRisk ?? false,
+      boardNote:      board.note ?? null
+    };
+  });
+
   // Schedule isNew flag clear (5s delay so frontend sees it once)
-  trades
+  enriched
     .filter(t => t.isNew)
     .forEach(t => setTimeout(async () => { await clearIsNew(t.id); }, 5000));
 
-  return trades;
+  return enriched;
 }
 
 // ─────────────────────────────────────────────
