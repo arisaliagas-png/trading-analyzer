@@ -170,3 +170,43 @@ export async function getMacroOverlay(force = false) {
   macroCache = { ts: Date.now(), data: result };
   return result;
 }
+
+// ── Delta Open Interest (1h) — PTS "ΔOI1h" flow-quality signal ──
+// Binance futures openInterestHist (free, no key). We pull two 1h anchors
+// (now + 1h ago) and compute the % change → tells us if positions are being
+// BUILT (rising OI) or CLOSED (falling OI). Combined with CVD this separates
+// genuine new flow from short-covering / long-flushing.
+// Cached 5 min per symbol so a scan pass doesn't hammer the endpoint.
+const doiCache = new Map(); // symbol -> { ts, data }
+const DOI_TTL = 5 * 60_000;
+
+export async function getDeltaOI(symbol) {
+  const now = Date.now();
+  const cached = doiCache.get(symbol);
+  if (cached && now - cached.ts < DOI_TTL) return cached.data;
+
+  try {
+    const url = `https://fapi.binance.com/futures/data/openInterestHist?symbol=${symbol}&period=1h&limit=2`;
+    const res = await fetch(url);
+    if (!res.ok) return { available: false, reason: `HTTP ${res.status}` };
+    const arr = await res.json();
+    if (!Array.isArray(arr) || arr.length < 2) return { available: false, reason: 'insufficient data' };
+
+    const prev = parseFloat(arr[0].sumOpenInterest);
+    const curr = parseFloat(arr[1].sumOpenInterest);
+    if (!prev || !curr) return { available: false, reason: 'zero OI' };
+
+    const pct = ((curr - prev) / prev) * 100;
+    const result = {
+      available: true,
+      symbol,
+      doi1h: +pct.toFixed(2),          // % change in open interest over 1h
+      oiNow: curr,
+      oiPrev: prev
+    };
+    doiCache.set(symbol, { ts: now, data: result });
+    return result;
+  } catch (e) {
+    return { available: false, reason: e.message };
+  }
+}

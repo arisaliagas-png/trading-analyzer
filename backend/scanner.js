@@ -13,6 +13,7 @@ import { analyzeChart }      from './aiProvider.js';
 import { aggregator }         from './heatmap.js';
 import { fetchAssetNews }     from './newsSearch.js';
 import { getMacroOverlay }     from './capitalFlow.js';
+import { getDeltaOI }         from './capitalFlow.js';
 import { getLessonsFor }      from './db.js';
 import { scannerLog } from './logger.js';
 
@@ -403,10 +404,51 @@ Return ONLY valid JSON (no markdown, no extra text):
       if (macroDowngrade) scannerLog.warn({ symbol, scanId, fg, dxy: macro.dxyDirection }, 'MACRO OVERLAY DOWNGRADE — ' + macroReason);
     }
 
+    // 4e. DELTA OPEN INTEREST (1h) — PTS "ΔOI1h" flow-quality signal.
+    // Combines with CVD to separate genuine new flow from short-covering / long-flush:
+    //   LONG  + ΔOI↑ + CVD↑ = STRONG BUILD (reinforce)
+    //   LONG  + ΔOI↓ + CVD↑ = SHORT COVERING (weak BUY — soft downgrade)
+    //   SHORT + ΔOI↑ + CVD↓ = STRONG BUILD (reinforce)
+    //   SHORT + ΔOI↓ + CVD↓ = LONG FLUSH (weak SHORT — soft downgrade)
+    // Soft downgrade only (PENDING) when flow is weak, never a hard veto — OI is
+    // a confluence filter, not a structural gate.
+    let flowDowngrade = false;
+    let flowReason = null;
+    let doi1h = null;
+    let flowQuality = 'N/A';
+    try {
+      const doi = await getDeltaOI(symbol);
+      if (doi?.available) {
+        doi1h = doi.doi1h;
+        const cvdBull = (liveCvdBias === 'BULL') || (engine.cvdBias === 'BULL');
+        const cvdBear = (liveCvdBias === 'BEAR') || (engine.cvdBias === 'BEAR');
+        if (tradeDir === 'LONG') {
+          if (doi1h > 0.3 && cvdBull) { flowQuality = 'STRONG_BUY_BUILD'; }
+          else if (doi1h < -0.3 && cvdBull) {
+            flowQuality = 'SHORT_COVERING';
+            flowDowngrade = true;
+            flowReason = `ΔOI1h ${doi1h}% (falling) + CVD bullish = short-covering, not new demand — weak BUY`;
+          }
+          else if (doi1h > 0.3 && cvdBear) { flowQuality = 'BUY_INTO_SELLING'; }
+          else flowQuality = 'NEUTRAL';
+        } else { // SHORT
+          if (doi1h > 0.3 && cvdBear) { flowQuality = 'STRONG_SELL_BUILD'; }
+          else if (doi1h < -0.3 && cvdBear) {
+            flowQuality = 'LONG_FLUSH';
+            flowDowngrade = true;
+            flowReason = `ΔOI1h ${doi1h}% (falling) + CVD bearish = long-flush, not new supply — weak SHORT`;
+          }
+          else if (doi1h > 0.3 && cvdBull) { flowQuality = 'SELL_INTO_BUYING'; }
+          else flowQuality = 'NEUTRAL';
+        }
+        if (flowDowngrade) scannerLog.warn({ symbol, scanId, doi1h, cvd: liveCvdBias || engine.cvdBias }, 'FLOW WEAK (ΔOI) — ' + flowReason);
+      }
+    } catch { /* non-fatal */ }
+
     // 5. Accept grades ≥ C and statuses ACTIVE/PENDING.
     // WAIT is treated as PENDING (kept in DB for re-scan) — the engine isn't
     // ready yet but the setup is real, so we don't delete it.
-    const effectiveStatus = (veto.veto || atrFloorDowngrade || macroDowngrade)
+    const effectiveStatus = (veto.veto || atrFloorDowngrade || macroDowngrade || flowDowngrade)
       ? 'PENDING'
       : (aiResult.setupStatus === 'WAIT' ? 'PENDING' : aiResult.setupStatus);
     if (aiResult.confidenceGrade !== 'D') {
@@ -435,12 +477,15 @@ Return ONLY valid JSON (no markdown, no extra text):
         status:       effectiveStatus,
         grade:        finalGrade,
         pct:          finalPct,
-        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (aiResult.reasoning || ''),
+        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (flowReason ? `[FLOW] ${flowReason} ` : '') + (aiResult.reasoning || ''),
         timestamp:    new Date().toISOString(),
         // ── Macro overlay (F&G + DXY) — PTS-style sentiment/headwind filter ──
         fgValue:      macro?.fgValue ?? null,
         dxyDirection: macro?.dxyDirection ?? null,
         dxyChange:    macro?.dxyChange ?? null,
+        // ── Flow quality (ΔOI1h + CVD confluence) — PTS "ΔOI1h" signal ──
+        doi1h:        doi1h ?? null,
+        flowQuality:  flowQuality ?? 'N/A',
         // ── Risk fields (server-computed, not AI) ──
         positionSize: sizing.positionSize,
         riskAmount:   sizing.riskAmount,
@@ -460,7 +505,9 @@ Return ONLY valid JSON (no markdown, no extra text):
               : (ote.entry?.low ?? ote.entry?.price)),
             atr14: atr14 ?? null, atrFloor: atrFloorReason || null },
           { __macro: true, fgValue: macro?.fgValue ?? null, fgSignal: macro?.fgSignal ?? 0,
-            dxyDirection: macro?.dxyDirection ?? null, dxyChange: macro?.dxyChange ?? null }
+            dxyDirection: macro?.dxyDirection ?? null, dxyChange: macro?.dxyChange ?? null },
+          { __flow: true, doi1h: doi1h ?? null, flowQuality: flowQuality ?? 'N/A',
+            cvdBias: liveCvdBias || engine.cvdBias || null }
         ]
       };
 
