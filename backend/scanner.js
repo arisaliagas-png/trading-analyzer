@@ -12,6 +12,7 @@ import { getLiveIndicators } from './indicators.js';
 import { analyzeChart }      from './aiProvider.js';
 import { aggregator }         from './heatmap.js';
 import { fetchAssetNews }     from './newsSearch.js';
+import { getMacroOverlay }     from './capitalFlow.js';
 import { getLessonsFor }      from './db.js';
 import { scannerLog } from './logger.js';
 
@@ -142,7 +143,7 @@ function buildIndicatorContext(ind, symbol, timeframe) {
 // ─────────────────────────────────────────────
 // SCAN SINGLE ASSET
 // ─────────────────────────────────────────────
-async function scanAsset(symbol, scanId) {
+async function scanAsset(symbol, scanId, macro = null) {
   try {
     // Skip if a trade is already being tracked for this symbol
     if (await hasActiveTrade(symbol)) {
@@ -376,10 +377,36 @@ Return ONLY valid JSON (no markdown, no extra text):
       scannerLog.warn({ symbol, scanId, direction: tradeDir, violated: veto.violatedRules }, 'LESSON VETO — downgrading to PENDING');
     }
 
+    // 4d. MACRO OVERLAY (F&G + DXY-proxy) — PTS-style sentiment/headwind filter.
+    // A structurally-sound BUY into extreme greed or a strengthening USD is a
+    // euphoria/headwind trap; a SHORT into extreme fear is a capitulation trap.
+    // Downgrade to PENDING (not auto-execute) but keep it for re-scan.
+    let macroDowngrade = false;
+    let macroReason = null;
+    if (macro && macro.available !== false) {
+      const fg = macro.fgValue;
+      const dxyUp = macro.dxyDirection === 'UP';
+      if (tradeDir === 'LONG') {
+        if (fg != null && fg >= 75) {
+          macroDowngrade = true;
+          macroReason = `F&G ${fg} (EXTREME GREED) — euphoria risk, tightening BUY conviction`;
+        } else if (dxyUp) {
+          macroDowngrade = true;
+          macroReason = `DXY rising (${macro.dxyChange}%) — USD headwind, crypto risk-off`;
+        }
+      } else if (tradeDir === 'SHORT') {
+        if (fg != null && fg <= 25) {
+          macroDowngrade = true;
+          macroReason = `F&G ${fg} (EXTREME FEAR) — capitulation zone, SHORT trap risk`;
+        }
+      }
+      if (macroDowngrade) scannerLog.warn({ symbol, scanId, fg, dxy: macro.dxyDirection }, 'MACRO OVERLAY DOWNGRADE — ' + macroReason);
+    }
+
     // 5. Accept grades ≥ C and statuses ACTIVE/PENDING.
     // WAIT is treated as PENDING (kept in DB for re-scan) — the engine isn't
     // ready yet but the setup is real, so we don't delete it.
-    const effectiveStatus = (veto.veto || atrFloorDowngrade)
+    const effectiveStatus = (veto.veto || atrFloorDowngrade || macroDowngrade)
       ? 'PENDING'
       : (aiResult.setupStatus === 'WAIT' ? 'PENDING' : aiResult.setupStatus);
     if (aiResult.confidenceGrade !== 'D') {
@@ -408,8 +435,12 @@ Return ONLY valid JSON (no markdown, no extra text):
         status:       effectiveStatus,
         grade:        finalGrade,
         pct:          finalPct,
-        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (aiResult.reasoning || ''),
+        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (aiResult.reasoning || ''),
         timestamp:    new Date().toISOString(),
+        // ── Macro overlay (F&G + DXY) — PTS-style sentiment/headwind filter ──
+        fgValue:      macro?.fgValue ?? null,
+        dxyDirection: macro?.dxyDirection ?? null,
+        dxyChange:    macro?.dxyChange ?? null,
         // ── Risk fields (server-computed, not AI) ──
         positionSize: sizing.positionSize,
         riskAmount:   sizing.riskAmount,
@@ -427,7 +458,9 @@ Return ONLY valid JSON (no markdown, no extra text):
           { __risk: true, invalidation: (tradeDir === 'LONG'
               ? (ote.entry?.high ?? ote.entry?.price)
               : (ote.entry?.low ?? ote.entry?.price)),
-            atr14: atr14 ?? null, atrFloor: atrFloorReason || null }
+            atr14: atr14 ?? null, atrFloor: atrFloorReason || null },
+          { __macro: true, fgValue: macro?.fgValue ?? null, fgSignal: macro?.fgSignal ?? 0,
+            dxyDirection: macro?.dxyDirection ?? null, dxyChange: macro?.dxyChange ?? null }
         ]
       };
 
@@ -443,6 +476,13 @@ Return ONLY valid JSON (no markdown, no extra text):
           atr14: signal.atr14,
           atrFloor: atrFloorReason || null
         };
+        const macroMeta = {
+          __macro: true,
+          fgValue: signal.fgValue ?? null,
+          fgSignal: null,
+          dxyDirection: signal.dxyDirection ?? null,
+          dxyChange: signal.dxyChange ?? null
+        };
         registerTradeSetup({
           id:         signal.id,
           instrument: symbol,
@@ -451,7 +491,7 @@ Return ONLY valid JSON (no markdown, no extra text):
           entry:      ote.entry,
           sl:         ote.sl,
           targets:    [ote.tp1, ote.tp2],
-          indicators: ind.arisContext ? [ind.arisContext, riskMeta] : [riskMeta],
+          indicators: ind.arisContext ? [ind.arisContext, riskMeta, macroMeta] : [riskMeta, macroMeta],
           grade:      finalGrade,
           pct:        finalPct,
           reasoning:  `[SCANNER] ${aiResult.reasoning || ''}`
@@ -479,6 +519,11 @@ export async function scanAllAssets() {
   const scanId = `scan_${Date.now()}`;
   scannerLog.info({ scanId, count: ASSETS_TO_SCAN.length }, 'Scan started');
 
+  // Macro overlay (F&G + DXY) — fetched ONCE per scan pass (cached 10 min, cheap).
+  let macro = null;
+  try { macro = await getMacroOverlay(); scannerLog.info({ scanId, fg: macro.fgValue, dxy: macro.dxyDirection }, 'Macro overlay loaded'); }
+  catch (e) { scannerLog.warn({ scanId, err: e.message }, 'Macro overlay fetch failed — scanner proceeds without it'); }
+
   // Warm up the live heatmap aggregator so the scanner sees the SAME order-book
   // data the Analyzer does. Start on the first asset and let it fill (~12s).
   try {
@@ -491,7 +536,7 @@ export async function scanAllAssets() {
 
   for (const asset of ASSETS_TO_SCAN) {
     try { aggregator.setSymbol(asset); } catch { /* non-fatal */ }
-    await scanAsset(asset, scanId);
+    await scanAsset(asset, scanId, macro);
     await new Promise(r => setTimeout(r, 2000)); // 2s pause between assets
   }
   scannerLog.info({ scanId }, 'Scan complete');

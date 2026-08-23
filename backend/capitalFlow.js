@@ -5,6 +5,8 @@
 // free-tier rate limit (8 credits/min): one call per class, 60s cache.
 // ─────────────────────────────────────────────
 import fetch from 'node-fetch';
+import dotenv from 'dotenv';
+dotenv.config();
 
 // Each class → candidate symbols (first that returns valid data wins).
 // We use `quote` (1 credit) which returns change + rolling windows at once.
@@ -129,4 +131,42 @@ async function getFearGreed() {
   } catch (e) {
     return { available: false, reason: e.message };
   }
+}
+
+// ── Macro Overlay (F&G + DXY-proxy) for the scanner ──
+// F&G is free (alternative.me). DXY uses the UUP ETF as a proxy (Twelve Data, 1 credit).
+// Cached 10 min so a single scan pass only hits Twelve Data once.
+let macroCache = { ts: 0, data: null };
+const MACRO_TTL = 10 * 60_000;
+
+export async function getMacroOverlay(force = false) {
+  if (!force && macroCache.data && Date.now() - macroCache.ts < MACRO_TTL) {
+    return macroCache.data;
+  }
+  const result = { available: true, fgValue: null, fgSignal: 0, dxyDirection: null, dxyChange: null };
+
+  // 1. Fear & Greed (free)
+  try {
+    const fg = await getFearGreed();
+    if (fg?.available) {
+      result.fgValue = fg.value;
+      result.fgSignal = fg.signal ?? 0;
+    }
+  } catch { /* non-fatal */ }
+
+  // 2. DXY proxy via UUP (USD bullish ETF). Up = USD strong = crypto headwind.
+  const KEY = process.env.TWELVE_DATA_API_KEY;
+  if (KEY) {
+    try {
+      const q = await fetchQuote('UUP');
+      if (q && q.close) {
+        const ch = parseFloat(q.percent_change ?? q.rolling_1d_change ?? 0);
+        result.dxyChange = +ch.toFixed(2);
+        result.dxyDirection = ch >= 0.1 ? 'UP' : ch <= -0.1 ? 'DOWN' : 'FLAT';
+      }
+    } catch { /* non-fatal */ }
+  }
+
+  macroCache = { ts: Date.now(), data: result };
+  return result;
 }
