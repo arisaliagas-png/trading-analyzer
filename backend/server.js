@@ -193,7 +193,7 @@ app.post('/api/fetch-tradingview', async (req, res) => {
     const tvXMatch = url.match(/tradingview\.com\/x\/([a-zA-Z0-9]+)/i);
     if (tvXMatch) {
       const code = tvXMatch[1];
-      targetUrl = `https://s3.amazonaws.com/tradingview/snapshots/${code.slice(0, 1).toLowerCase()}/${code}.png`;
+      targetUrl = `https://s3.tradingview.com/snapshots/${code.slice(0, 1).toLowerCase()}/${code}.png`;
       console.log(`Converted TradingView /x/ link to direct CDN URL: ${targetUrl}`);
     }
 
