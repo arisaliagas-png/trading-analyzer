@@ -440,6 +440,14 @@ export default function App() {
 
   const fetchTVChart = async () => {
     if (!z) return;
+    // Validate the TradingView /x/ link format client-side so the user gets
+    // an immediate, clear error instead of a silent no-op or backend 400.
+    const tvCode = z.match(/tradingview\.com\/x\/([a-zA-Z0-9]+)/i);
+    if (!tvCode) {
+      setStUrl('⚠️ Βάλε ολόκληρο το TradingView link (π.χ. https://www.tradingview.com/x/KngcZe9M/). Το link πρέπει να περιέχει τον κωδικό μετά το /x/.');
+      setB(false);
+      return;
+    }
     setB(true);
     setStUrl('');
     try {
