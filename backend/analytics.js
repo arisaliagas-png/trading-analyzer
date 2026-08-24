@@ -245,6 +245,8 @@ export async function computeAnalytics() {
     riskReward: rrAnalysis,
 
     personalBests: personalBestsStats,
+    leaderboard: personalBestsStats,
+    circuitBreaker,
 
     recentPerformance: {
       last10Trades: recentPerf,
@@ -257,8 +259,6 @@ export async function computeAnalytics() {
         rr:         t.rr,
         closedAt:   t.closedAt
       }))
-    },
-
-    circuitBreaker
+    }
   };
 }

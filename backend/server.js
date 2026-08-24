@@ -262,7 +262,17 @@ app.post('/api/analyze', upload.single('chart'), async (req, res) => {
       }
     }
 
-    // 1. Fetch indicators context
+    // 1. Fetch real-time news via Tavily (non-blocking, cached 10 min)
+    let newsContext = null;
+    if (pair) {
+      try {
+        newsContext = await fetchAssetNews(pair);
+      } catch (e) {
+        console.warn('News fetch error:', e.message);
+      }
+    }
+
+    // 2. Fetch indicators context
     let indicatorContext = null;
     if (pair) {
       try {
@@ -291,7 +301,7 @@ app.post('/api/analyze', upload.single('chart'), async (req, res) => {
       }
     }
 
-    // 2. Attach live orderbook snapshot if heatmap is active
+    // 3. Attach live orderbook snapshot if heatmap is active
     let orderbookContext = null;
     if (aggregator.running && aggregator.midPrice > 0) {
       try {
@@ -333,17 +343,6 @@ app.post('/api/analyze', upload.single('chart'), async (req, res) => {
 
         orderbookContext = `LIVE ORDER BOOK (${snap.symbol} from ${snap.sources.join('+')}, 6 exchanges): Mid=$${f(snap.midPrice)} | Bids: ${topBids.join(' ')} | Asks: ${topAsks.join(' ')} | Pressure: ${mf.bidPct}% BUY / ${mf.askPct}% SELL | CVD: ${mf.cvd > 0 ? '+' : ''}${mf.cvd} | Bias: ${mf.bias.toUpperCase()}${snap.whaleWalls.length ? ` | Whale Walls: ${snap.whaleWalls.map(w => `${w.side === 'bid' ? '🟢' : '🔴'}$${f(w.price)}`).join(' ')}` : ''}${clusterSection}${footprintSection}`;
       } catch (e) { console.warn('Orderbook ctx error:', e.message); }
-    }
-
-
-    // 3. Fetch real-time news via Tavily (non-blocking, cached 10 min)
-    let newsContext = null;
-    if (pair) {
-      try {
-        newsContext = await fetchAssetNews(pair);
-      } catch (e) {
-        console.warn('News fetch error:', e.message);
-      }
     }
 
     console.log(`Analyzing via ${process.env.AI_PROVIDER || 'gemini'}${orderbookContext ? ' +orderbook' : ''}${indicatorContext ? ' +indicators' : ''}${newsContext ? ' +news' : ''}...`);

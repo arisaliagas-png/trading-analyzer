@@ -1226,6 +1226,28 @@ export default function App() {
             <div className="history-grid">
               {filteredHistory.map(card => {
                 const isExpanded = rt === card.id;
+                const entryPrice = typeof card.entry === 'object' ? card.entry?.price : card.entry;
+                const fP = (val) => {
+                  if (val == null) return '—';
+                  const n = Number(val);
+                  if (isNaN(n)) return '—';
+                  if (Math.abs(n) < 0.001) return n.toFixed(6);
+                  if (Math.abs(n) < 1) return n.toFixed(4);
+                  if (Math.abs(n) < 1000) return n.toFixed(3);
+                  return n.toFixed(2);
+                };
+
+                const lastPrice = card.closePrice || (card.historyPrices?.length > 0 ? card.historyPrices[card.historyPrices.length - 1]?.price : null);
+                const livePnL = (lastPrice && entryPrice && Number(entryPrice) > 0)
+                  ? ((Number(lastPrice) - Number(entryPrice)) / Number(entryPrice)) * 100 * (card.direction === 'SHORT' ? -1 : 1)
+                  : null;
+
+                const indicatorText = Array.isArray(card.indicators) && card.indicators.length > 0
+                  ? card.indicators.join('\n')
+                  : Array.isArray(card.indicatorSnapshot) && card.indicatorSnapshot.length > 0
+                  ? card.indicatorSnapshot.join('\n')
+                  : null;
+
                 return (
                   <div
                     key={card.id}
@@ -1240,7 +1262,7 @@ export default function App() {
                     <div className="h-top-row">
                       <span className="h-symbol">
                         {card.instrument}
-                        <span className="h-tf">{card.timeframe}</span>
+                        <span className="h-tf">{card.timeframe || '1h'}</span>
                       </span>
                       <span
                         className="h-status-badge"
@@ -1252,71 +1274,121 @@ export default function App() {
                       </span>
                     </div>
 
-                    <div className="h-dir-row">
-                      <span className={`badge ${card.direction === 'LONG' ? 'dir-long' : card.direction === 'SHORT' ? 'dir-short' : ''}`}>
-                        {card.direction || '—'}
-                      </span>
-                      <span style={{ fontSize: '0.78rem' }}>
-                        Grade: <strong style={{ color: '#a78bfa' }}>{card.confidenceGrade || 'C'}</strong>
-                      </span>
+                    <div className="h-dir-row" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', margin: '0.4rem 0 0.6rem 0' }}>
+                      <div style={{ display: 'flex', alignItems: 'center', gap: '0.8rem' }}>
+                        <span className={`badge ${card.direction === 'LONG' ? 'dir-long' : card.direction === 'SHORT' ? 'dir-short' : ''}`}>
+                          {card.direction === 'LONG' ? '▲ LONG' : card.direction === 'SHORT' ? '▼ SHORT' : card.direction || '—'}
+                        </span>
+                        {livePnL != null && (
+                          <span style={{ color: livePnL >= 0 ? '#10b981' : '#ef4444', fontWeight: 700, fontSize: '0.88rem' }}>
+                            {livePnL >= 0 ? '+' : ''}{livePnL.toFixed(2)}%
+                          </span>
+                        )}
+                      </div>
+                      {card.rMultiple != null ? (
+                        <span style={{ color: card.rMultiple >= 0 ? '#10b981' : '#ef4444', fontWeight: 700, fontSize: '0.88rem' }}>
+                          {card.rMultiple >= 0 ? '+' : ''}{card.rMultiple}R
+                        </span>
+                      ) : (
+                        <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
+                          Grade: <strong style={{ color: '#a78bfa' }}>{card.confidenceGrade || card.grade || 'C'}</strong>
+                        </span>
+                      )}
                     </div>
 
                     <div className="h-levels-box">
                       <div className="h-level-row">
-                        <span>Entry:</span>
-                        <span>${typeof card.entry === 'object' ? card.entry.price : card.entry}</span>
+                        <span>Ideal Entry:</span>
+                        <span style={{ color: '#06b6d4', fontWeight: 600 }}>${fP(entryPrice)}</span>
                       </div>
                       <div className="h-level-row">
-                        <span>SL:</span>
-                        <span>${card.sl}</span>
+                        <span>Stop Loss:</span>
+                        <span style={{ color: '#ef4444', fontWeight: 600 }}>${fP(card.sl)}</span>
                       </div>
                       <div className="h-level-row">
-                        <span>TP1:</span>
-                        <span>${card.targets?.[0]}</span>
+                        <span>Targets:</span>
+                        <span style={{ color: '#10b981', fontWeight: 600 }}>
+                          TP1: ${fP(card.targets?.[0] || card.tp1)}
+                          {card.targets?.[1] && ` | TP2: $${fP(card.targets[1])}`}
+                        </span>
                       </div>
+                      {lastPrice && (
+                        <div className="h-level-row" style={{ marginTop: '0.2rem', paddingTop: '0.2rem', borderTop: '1px dashed #1e293b' }}>
+                          <span style={{ color: '#94a3b8' }}>Last Ticker:</span>
+                          <span style={{ fontWeight: 700, color: '#e2e8f0' }}>${fP(lastPrice)}</span>
+                        </div>
+                      )}
                     </div>
 
                     {isExpanded && (
-                      <div className="h-details-expanded">
+                      <div className="h-details-expanded" style={{ marginTop: '0.75rem', paddingTop: '0.75rem', borderTop: '1px solid #1e293b' }}>
                         {card.chartDataUrl && (
                           <img
                             src={card.chartDataUrl}
                             alt="Analysis screenshot"
-                            style={{ width: '100%', borderRadius: '8px', objectFit: 'contain', maxHeight: '200px' }}
+                            style={{ width: '100%', borderRadius: '8px', objectFit: 'contain', maxHeight: '200px', marginBottom: '0.75rem' }}
                           />
                         )}
 
-                        <div className="h-detail-section">
-                          <span className="detail-label">AI Reasoning</span>
-                          <p className="detail-value">{card.reasoning}</p>
-                        </div>
-
-                        {card.lessonsLearned && (
-                          <div className="lessons-alert">
-                            <span className="detail-label text-red">🧬 Post-Mortem Lesson</span>
-                            <p className="detail-value" style={{ fontStyle: 'italic' }}>{card.lessonsLearned}</p>
-                          </div>
-                        )}
-
-                        {card.closePrice && (
-                          <div className="h-level-row font-bold">
-                            <span>Close Price:</span>
-                            <span>${card.closePrice} {card.closedAt && `(at ${new Date(card.closedAt).toLocaleDateString()})`}</span>
+                        {card.reasoning && (
+                          <div className="h-detail-section" style={{ marginBottom: '0.75rem' }}>
+                            <span className="detail-label" style={{ color: '#fbbf24', fontWeight: 700, display: 'block', marginBottom: '0.25rem' }}>
+                              💡 QUANTITATIVE SETUP REASON
+                            </span>
+                            <p className="detail-value" style={{ fontSize: '0.8rem', color: '#cbd5e1', lineHeight: 1.45, margin: 0 }}>
+                              {card.reasoning}
+                            </p>
                           </div>
                         )}
 
                         {card.rMultiple != null && (
-                          <div className="h-level-row font-bold">
-                            <span>R-Normalized Outcome:</span>
-                            <span style={{ color: card.rMultiple > 0 ? '#10b981' : '#ef4444' }}>
-                              {card.rMultiple > 0 ? '+' : ''}{card.rMultiple}R
+                          <div className="h-detail-section" style={{ marginBottom: '0.75rem' }}>
+                            <span className="detail-label" style={{ color: '#94a3b8', fontWeight: 600, display: 'block', marginBottom: '0.2rem' }}>
+                              📐 R-MULTIPLE
                             </span>
+                            <span style={{ color: card.rMultiple >= 0 ? '#10b981' : '#ef4444', fontWeight: 700, fontSize: '0.9rem' }}>
+                              {card.rMultiple >= 0 ? '+' : ''}{card.rMultiple}R <span style={{ fontSize: '0.72rem', color: '#64748b', fontWeight: 400 }}>(risk-normalized)</span>
+                            </span>
+                          </div>
+                        )}
+
+                        {indicatorText && (
+                          <div className="h-detail-section" style={{ marginBottom: '0.75rem' }}>
+                            <span className="detail-label" style={{ color: '#94a3b8', fontWeight: 600, display: 'block', marginBottom: '0.3rem' }}>
+                              📜 INDICATOR VALUES AT ENTRY
+                            </span>
+                            <pre style={{
+                              background: '#090d13',
+                              border: '1px solid #1e293b',
+                              borderRadius: '6px',
+                              padding: '0.6rem 0.75rem',
+                              fontSize: '0.68rem',
+                              color: '#94a3b8',
+                              maxHeight: '140px',
+                              overflowY: 'auto',
+                              fontFamily: 'monospace',
+                              whiteSpace: 'pre-wrap',
+                              margin: 0
+                            }}>
+                              {indicatorText}
+                            </pre>
+                          </div>
+                        )}
+
+                        {card.lessonsLearned && (
+                          <div className="lessons-alert" style={{ background: '#ef444410', border: '1px solid #ef444430', padding: '0.6rem 0.75rem', borderRadius: '6px', marginTop: '0.5rem' }}>
+                            <span className="detail-label text-red" style={{ color: '#ef4444', fontWeight: 700, display: 'block', marginBottom: '0.2rem' }}>
+                              🧬 Post-Mortem Lesson
+                            </span>
+                            <p className="detail-value" style={{ fontStyle: 'italic', fontSize: '0.8rem', color: '#cbd5e1', margin: 0 }}>
+                              {card.lessonsLearned}
+                            </p>
                           </div>
                         )}
                       </div>
                     )}
-                    <div className="h-expand-hint">
-                      {isExpanded ? 'Click card to collapse' : 'Click card to view details'}
+                    <div className="h-expand-hint" style={{ textAlign: 'center', fontSize: '0.7rem', color: '#64748b', marginTop: '0.5rem', paddingTop: '0.3rem', borderTop: '1px solid #1e293b22' }}>
+                      {isExpanded ? 'Click card to collapse' : 'Click card to view details & indicator values'}
                     </div>
                   </div>
                 );
@@ -1370,24 +1442,24 @@ export default function App() {
               <div className="heatmap-stats">
                 <div className="heatmap-stat">
                   <div className="card-title">{t.midPrice}</div>
-                  <div className="stat-value cyan">${U.midPrice?.toFixed(2)}</div>
+                  <div className="stat-value cyan">${U.midPrice ? Number(U.midPrice).toFixed(2) : '0.00'}</div>
                 </div>
                 <div className="heatmap-stat">
                   <div className="card-title">{t.topBidWall}</div>
                   <div className="stat-value green">
-                    ${U.bids?.[0]?.price?.toFixed(2)} <small>({U.bids?.[0]?.qty?.toFixed(1)})</small>
+                    ${U.bids?.[0]?.price ? Number(U.bids[0].price).toFixed(2) : '0.00'} <small>({U.bids?.[0]?.qty ? Number(U.bids[0].qty).toFixed(1) : '0.0'})</small>
                   </div>
                 </div>
                 <div className="heatmap-stat">
                   <div className="card-title">{t.topAskWall}</div>
                   <div className="stat-value red">
-                    ${U.asks?.[0]?.price?.toFixed(2)} <small>({U.asks?.[0]?.qty?.toFixed(1)})</small>
+                    ${U.asks?.[0]?.price ? Number(U.asks[0].price).toFixed(2) : '0.00'} <small>({U.asks?.[0]?.qty ? Number(U.asks[0].qty).toFixed(1) : '0.0'})</small>
                   </div>
                 </div>
                 <div className="heatmap-stat">
                   <div className="card-title">{t.spread}</div>
                   <div className="stat-value">
-                    ${((U.asks?.[0]?.price || 0) - (U.bids?.[0]?.price || 0)).toFixed(3)}
+                    ${((Number(U.asks?.[0]?.price) || 0) - (Number(U.bids?.[0]?.price) || 0)).toFixed(3)}
                   </div>
                 </div>
               </div>
@@ -1398,7 +1470,7 @@ export default function App() {
                   <div className="mf-title">💹 Money Flow & Order Pressure</div>
                   <div className="mf-grid">
                     <div className="mf-card">
-                      <div className="card-title">Order Book Pressure</div>
+                      <div className="card-title">Order Pressure</div>
                       <div className="pressure-bar-wrap">
                         <div className="pressure-bar">
                           <div className="pressure-bid" style={{ width: `${U.moneyFlow.bidPct || 50}%` }} />
@@ -1410,18 +1482,43 @@ export default function App() {
                         <span className="red">{U.moneyFlow.askPct}% Asks</span>
                       </div>
                       <div className={`mf-bias ${U.moneyFlow.bias === 'buy' ? 'green' : U.moneyFlow.bias === 'sell' ? 'red' : 'muted'}`}>
-                        Bias: {U.moneyFlow.bias?.toUpperCase()}
+                        ● {U.moneyFlow.bias === 'buy' ? 'BUY DOMINANT' : U.moneyFlow.bias === 'sell' ? 'SELL DOMINANT' : 'NEUTRAL'}
                       </div>
                     </div>
 
                     <div className="mf-card">
-                      <div className="card-title">CVD Cumulative Delta</div>
+                      <div className="card-title">Cumulative Volume Delta</div>
                       <div className="cvd-value" style={{ color: U.moneyFlow.cvd > 0 ? '#10b981' : U.moneyFlow.cvd < 0 ? '#ef4444' : '#cbd5e1' }}>
                         {U.moneyFlow.cvd > 0 ? '+' : ''}{U.moneyFlow.cvd?.toFixed(1)}
                       </div>
-                      <div className="card-title">24h Net Pressure</div>
+                      <div className="card-title" style={{ marginTop: '0.5rem' }}>Net+ Limits</div>
                       <div style={{ fontSize: '0.9rem', fontWeight: 600 }}>
                         {U.moneyFlow.netPressure > 0 ? '🟢 Net Inflow' : U.moneyFlow.netPressure < 0 ? '🔴 Net Outflow' : '⚪ Neutral'}
+                      </div>
+                    </div>
+
+                    {/* Volume Depth */}
+                    <div className="mf-card">
+                      <div className="card-title">Volume Depth</div>
+                      <div style={{ display: 'flex', gap: '1.5rem', marginTop: '0.4rem', marginBottom: '0.6rem' }}>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Bid Liquidity</div>
+                          <div style={{ fontWeight: 700, color: '#10b981', fontSize: '1.05rem' }}>
+                            {U.bids ? U.bids.reduce((s, b) => s + (Number(b.qty) || 0), 0).toFixed(1) : '0.0'}
+                          </div>
+                        </div>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: '#64748b' }}>Ask Liquidity</div>
+                          <div style={{ fontWeight: 700, color: '#ef4444', fontSize: '1.05rem' }}>
+                            {U.asks ? U.asks.reduce((s, a) => s + (Number(a.qty) || 0), 0).toFixed(1) : '0.0'}
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>Bid/Ask Ratio</div>
+                      <div style={{ fontWeight: 700, color: '#e2e8f0', fontSize: '0.95rem' }}>
+                        {U.bids && U.asks && U.asks.reduce((s, a) => s + (Number(a.qty) || 0), 0) > 0
+                          ? (U.bids.reduce((s, b) => s + (Number(b.qty) || 0), 0) / U.asks.reduce((s, a) => s + (Number(a.qty) || 0), 0)).toFixed(2)
+                          : '—'}
                       </div>
                     </div>
                   </div>
@@ -1431,7 +1528,7 @@ export default function App() {
                       <span className="detail-label">Active Imbalances:</span>
                       {U.moneyFlow.imbalances.map((imb, idx) => (
                         <span key={idx} className={`imbalance-tag ${imb.side === 'bid' ? 'green-tag' : 'red-tag'}`}>
-                          {imb.side === 'bid' ? 'BUY' : 'SELL'} ${imb.price.toFixed(2)} ({imb.qty}x)
+                          {imb.side === 'bid' ? 'BUY' : 'SELL'} ${imb.price ? Number(imb.price).toFixed(2) : '0.00'} ({imb.qty}x)
                         </span>
                       ))}
                     </div>
@@ -1439,7 +1536,7 @@ export default function App() {
                 </div>
               )}
 
-              {/* Smart Money alerts & liquidity clusters */}
+              {/* Smart Money alerts */}
               {U.smartMoneyAlerts && U.smartMoneyAlerts.length > 0 && (
                 <div className="panel" style={{ marginBottom: '1.5rem' }}>
                   <div className="whale-title">🔔 Smart Money Alerts</div>
@@ -1447,9 +1544,39 @@ export default function App() {
                     {U.smartMoneyAlerts.map((alrt, idx) => (
                       <div key={idx} className={`whale-card ${alrt.side === 'bid' ? 'bid' : 'ask'}`}>
                         <div className="whale-side">{alrt.side === 'bid' ? 'LIMIT BUY' : 'LIMIT SELL'}</div>
-                        <div className="whale-price">${alrt.price?.toFixed(2)}</div>
-                        <div className="whale-qty">{alrt.qty?.toFixed(1)} units</div>
+                        <div className="whale-price">${alrt.price ? Number(alrt.price).toFixed(2) : '0.00'}</div>
+                        <div className="whale-qty">{alrt.qty ? Number(alrt.qty).toFixed(1) : '0.0'} units</div>
                         <div style={{ fontSize: '0.65rem', color: '#a78bfa', marginTop: '0.2rem' }}>{alrt.label}</div>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )}
+
+              {/* Whale Walls Detected */}
+              {U.stableWhaleWalls && U.stableWhaleWalls.length > 0 && (
+                <div style={{ background: '#0d1117', border: '1px solid #1e293b', borderRadius: '8px', padding: '1rem', marginBottom: '1rem' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#fbbf24', marginBottom: '0.75rem' }}>🐳 Whale Walls Detected</div>
+                  <div style={{ display: 'flex', gap: '1rem', flexWrap: 'wrap' }}>
+                    {U.stableWhaleWalls.map((w, idx) => (
+                      <div key={idx} style={{
+                        display: 'flex', flexDirection: 'column', gap: '0.15rem',
+                        padding: '0.5rem 0.75rem', borderRadius: '6px', minWidth: '120px',
+                        background: w.side === 'bid' ? '#10b98110' : '#ef444410',
+                        border: `1px solid ${w.side === 'bid' ? '#10b98130' : '#ef444430'}`
+                      }}>
+                        <div style={{ fontSize: '0.65rem', color: w.side === 'bid' ? '#10b981' : '#ef4444', fontWeight: 700 }}>
+                          {w.side === 'bid' ? '● BID' : '● ASK'} Wall
+                        </div>
+                        <div style={{ fontSize: '0.85rem', fontWeight: 700, color: '#e2e8f0' }}>
+                          ${w.price ? Number(w.price).toFixed(2) : '0.00'}
+                        </div>
+                        <div style={{ fontSize: '0.7rem', color: '#64748b' }}>
+                          {w.qty ? Number(w.qty).toFixed(1) : '0.0'} units
+                        </div>
+                        {w.hits && (
+                          <div style={{ fontSize: '0.65rem', color: '#94a3b8' }}>hits: {w.hits}</div>
+                        )}
                       </div>
                     ))}
                   </div>
@@ -1466,10 +1593,10 @@ export default function App() {
                       {U.liquidityClusters.bids?.map((clst, idx) => (
                         <div key={idx} className={`cluster-row bid-cluster ${clst.isWhale ? 'mega-wall' : ''}`}>
                           <span className="cluster-price">
-                            ${clst.price.toFixed(2)} {clst.isWhale && <span className="mega-badge mega-bid">MEGA</span>}
+                            ${clst.price ? Number(clst.price).toFixed(2) : '0.00'} {clst.isWhale && <span className="mega-badge mega-bid">MEGA</span>}
                           </span>
-                          <span className="cluster-vol">{clst.qty.toFixed(1)}</span>
-                          <span className="cluster-dist">{clst.distancePct?.toFixed(2)}%</span>
+                          <span className="cluster-vol">{clst.qty ? Number(clst.qty).toFixed(1) : '0.0'}</span>
+                          <span className="cluster-dist">{clst.distancePct ? Number(clst.distancePct).toFixed(2) : '0.00'}%</span>
                           <div className="cluster-bar-bg">
                             <div className="cluster-bar-fill green-fill" style={{ width: `${Math.min((clst.qty / U.liquidityClusters.minVol) * 33, 100)}%` }} />
                           </div>
@@ -1481,10 +1608,10 @@ export default function App() {
                       {U.liquidityClusters.asks?.map((clst, idx) => (
                         <div key={idx} className={`cluster-row ask-cluster ${clst.isWhale ? 'mega-wall' : ''}`}>
                           <span className="cluster-price">
-                            ${clst.price.toFixed(2)} {clst.isWhale && <span className="mega-badge">MEGA</span>}
+                            ${clst.price ? Number(clst.price).toFixed(2) : '0.00'} {clst.isWhale && <span className="mega-badge">MEGA</span>}
                           </span>
-                          <span className="cluster-vol">{clst.qty.toFixed(1)}</span>
-                          <span className="cluster-dist">+{Math.abs(clst.distancePct)?.toFixed(2)}%</span>
+                          <span className="cluster-vol">{clst.qty ? Number(clst.qty).toFixed(1) : '0.0'}</span>
+                          <span className="cluster-dist">+{clst.distancePct ? Math.abs(Number(clst.distancePct)).toFixed(2) : '0.00'}%</span>
                           <div className="cluster-bar-bg">
                             <div className="cluster-bar-fill red-fill" style={{ width: `${Math.min((clst.qty / U.liquidityClusters.minVol) * 33, 100)}%` }} />
                           </div>
@@ -1500,16 +1627,21 @@ export default function App() {
                 <div className="footprint-section">
                   <div className="footprint-header">
                     <span className="footprint-title">⚡ Live Order Flow · 1-Min Footprint</span>
-                    <span className="footprint-meta">POC: ${U.footprint.poc?.toFixed(2)}</span>
+                    <span className="footprint-meta">POC: ${U.footprint.poc ? Number(U.footprint.poc).toFixed(2) : '0.00'}</span>
                     <span className={`absorption-badge ${U.footprint.absorption?.type === 'BUY_ABSORPTION' ? 'buy-absorption' : U.footprint.absorption?.type === 'SELL_ABSORPTION' ? 'sell-absorption' : 'none'}`}>
                       {U.footprint.absorption?.type === 'BUY_ABSORPTION' ? '🟢 BUY ABSORPTION' : U.footprint.absorption?.type === 'SELL_ABSORPTION' ? '🔴 SELL ABSORPTION' : '⚪ NO ACTIVE ABSORPTION'}
                     </span>
+                    {U.footprint.absorption?.price && (
+                      <span style={{ fontSize: '0.75rem', color: '#e2e8f0', marginLeft: '0.5rem' }}>
+                        @ ${Number(U.footprint.absorption.price).toFixed(2)}
+                      </span>
+                    )}
                   </div>
 
                   <div className="footprint-candle">
                     {U.footprint.active?.map((fpNode, idx) => (
                       <div key={idx} className={`fp-row ${fpNode.isPoc ? 'fp-poc' : ''}`}>
-                        <span className="fp-price">${fpNode.price.toFixed(2)}</span>
+                        <span className="fp-price">${fpNode.price ? Number(fpNode.price).toFixed(2) : '0.00'}</span>
                         <div className="fp-bar-wrap">
                           <div className="fp-bar buy" style={{ width: `${(fpNode.buyVol / (fpNode.buyVol + fpNode.sellVol || 1)) * 100}%` }} />
                           <div className="fp-bar sell" style={{ width: `${(fpNode.sellVol / (fpNode.buyVol + fpNode.sellVol || 1)) * 100}%` }} />
@@ -1523,46 +1655,211 @@ export default function App() {
                       </div>
                     ))}
                   </div>
+
+                  {/* Full BIDS / ASKS price table */}
+                  {(U.bids?.length > 0 || U.asks?.length > 0) && (
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#10b981', marginBottom: '0.5rem', paddingBottom: '0.3rem', borderBottom: '1px solid #10b98122' }}>
+                          BIDS
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', fontSize: '0.7rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: 600 }}>
+                          <span>Price</span><span>Volume</span><span>Intensity</span>
+                        </div>
+                        {(U.bids || []).slice(0, 12).map((b, idx) => (
+                          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', fontSize: '0.72rem', padding: '0.1rem 0', borderBottom: '1px solid #0f172a', color: b.isWhale ? '#10b981' : '#94a3b8' }}>
+                            <span style={{ fontWeight: b.isWhale ? 700 : 400 }}>${b.price ? Number(b.price).toFixed(2) : '0.00'}</span>
+                            <span>{b.qty ? Number(b.qty).toFixed(1) : '0.0'}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                              <div style={{ height: '4px', width: `${Math.min((b.intensity || 0) * 100, 100)}%`, background: '#10b981', borderRadius: '2px', minWidth: '4px' }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                      <div>
+                        <div style={{ fontSize: '0.75rem', fontWeight: 700, color: '#ef4444', marginBottom: '0.5rem', paddingBottom: '0.3rem', borderBottom: '1px solid #ef444422' }}>
+                          ASKS
+                        </div>
+                        <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', fontSize: '0.7rem', color: '#64748b', marginBottom: '0.25rem', fontWeight: 600 }}>
+                          <span>Price</span><span>Volume</span><span>Intensity</span>
+                        </div>
+                        {(U.asks || []).slice(0, 12).map((a, idx) => (
+                          <div key={idx} style={{ display: 'grid', gridTemplateColumns: '1fr 1fr 1fr', fontSize: '0.72rem', padding: '0.1rem 0', borderBottom: '1px solid #0f172a', color: a.isWhale ? '#ef4444' : '#94a3b8' }}>
+                            <span style={{ fontWeight: a.isWhale ? 700 : 400 }}>${a.price ? Number(a.price).toFixed(2) : '0.00'}</span>
+                            <span>{a.qty ? Number(a.qty).toFixed(1) : '0.0'}</span>
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.3rem' }}>
+                              <div style={{ height: '4px', width: `${Math.min((a.intensity || 0) * 100, 100)}%`, background: '#ef4444', borderRadius: '2px', minWidth: '4px' }} />
+                            </div>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+                  )}
                 </div>
               )}
+
+              {/* ── Trade Tape & Aggregate Ledger ─────────────────────────────── */}
+              <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem', marginTop: '1rem' }}>
+
+                {/* Time & Sales Tape */}
+                <div style={{ background: '#0d1117', border: '1px solid #1e293b', borderRadius: '8px', padding: '1rem' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#e2e8f0', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>📋 Time &amp; Sales</span>
+                    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 400 }}>live · last 50</span>
+                  </div>
+                  <div style={{ display: 'grid', gridTemplateColumns: '60px 1fr 70px 40px', fontSize: '0.68rem', color: '#475569', fontWeight: 600, paddingBottom: '0.4rem', borderBottom: '1px solid #1e293b', marginBottom: '0.3rem' }}>
+                    <span>Time</span><span>Price</span><span style={{ textAlign: 'right' }}>Size</span><span style={{ textAlign: 'right' }}>Ex</span>
+                  </div>
+                  <div style={{ maxHeight: '320px', overflowY: 'auto', display: 'flex', flexDirection: 'column', gap: '1px' }}>
+                    {(U.recentTrades || []).map((tr, idx) => {
+                      const isBuy = tr.side === 'buy';
+                      const d = new Date(tr.t);
+                      const ts = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+                      return (
+                        <div key={idx} style={{ display: 'grid', gridTemplateColumns: '60px 1fr 70px 40px', fontSize: '0.72rem', padding: '0.15rem 0.2rem', borderRadius: '2px', background: isBuy ? 'rgba(16,185,129,0.05)' : 'rgba(239,68,68,0.05)' }}>
+                          <span style={{ color: '#475569' }}>{ts}</span>
+                          <span style={{ fontWeight: 600, color: isBuy ? '#10b981' : '#ef4444' }}>{isBuy ? '▲' : '▼'} ${Number(tr.p).toFixed(2)}</span>
+                          <span style={{ textAlign: 'right', color: '#cbd5e1' }}>{Number(tr.q).toFixed(3)}</span>
+                          <span style={{ textAlign: 'right', fontSize: '0.6rem', color: '#64748b', fontWeight: 600 }}>{tr.ex}</span>
+                        </div>
+                      );
+                    })}
+                    {(!U.recentTrades || U.recentTrades.length === 0) && (
+                      <div style={{ color: '#475569', fontSize: '0.75rem', padding: '1rem', textAlign: 'center' }}>Αναμονή trades…</div>
+                    )}
+                  </div>
+                </div>
+
+                {/* Aggregate Ledger — 1-sec bars */}
+                <div style={{ background: '#0d1117', border: '1px solid #1e293b', borderRadius: '8px', padding: '1rem' }}>
+                  <div style={{ fontSize: '0.8rem', fontWeight: 700, color: '#e2e8f0', marginBottom: '0.75rem', display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                    <span>📊 Aggregate Ledger (1s)</span>
+                    <span style={{ fontSize: '0.7rem', color: '#64748b', fontWeight: 400 }}>last 60s</span>
+                  </div>
+                  {(U.tradeLedger || []).length === 0 ? (
+                    <div style={{ color: '#475569', fontSize: '0.75rem', padding: '1rem', textAlign: 'center' }}>Αναμονή δεδομένων…</div>
+                  ) : (() => {
+                    const ledger = U.tradeLedger || [];
+                    const maxVol = ledger.reduce((m, b) => Math.max(m, b.buyVol + b.sellVol, 0.001), 0.001);
+                    const totalBuy  = ledger.reduce((s, b) => s + b.buyVol, 0);
+                    const totalSell = ledger.reduce((s, b) => s + b.sellVol, 0);
+                    const netDelta  = totalBuy - totalSell;
+                    return (
+                      <div>
+                        <div style={{ display: 'flex', gap: '1.5rem', marginBottom: '0.75rem', fontSize: '0.78rem' }}>
+                          <span style={{ color: '#10b981' }}>▲ Buy <strong>{totalBuy.toFixed(2)}</strong></span>
+                          <span style={{ color: '#ef4444' }}>▼ Sell <strong>{totalSell.toFixed(2)}</strong></span>
+                          <span style={{ color: netDelta >= 0 ? '#10b981' : '#ef4444', fontWeight: 700 }}>Δ {netDelta >= 0 ? '+' : ''}{netDelta.toFixed(2)}</span>
+                        </div>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '2px', maxHeight: '280px', overflowY: 'auto' }}>
+                          {ledger.map((b, idx) => {
+                            const total  = b.buyVol + b.sellVol || 0.001;
+                            const buyPct = (b.buyVol / total) * 100;
+                            const selPct = (b.sellVol / total) * 100;
+                            const net    = b.buyVol - b.sellVol;
+                            const barW   = Math.min((total / maxVol) * 100, 100);
+                            const d      = new Date(b.t);
+                            const ts     = `${String(d.getHours()).padStart(2,'0')}:${String(d.getMinutes()).padStart(2,'0')}:${String(d.getSeconds()).padStart(2,'0')}`;
+                            return (
+                              <div key={idx} style={{ display: 'grid', gridTemplateColumns: '52px 1fr 60px', alignItems: 'center', gap: '0.4rem' }}>
+                                <span style={{ fontSize: '0.62rem', color: '#475569' }}>{ts}</span>
+                                <div style={{ height: '10px', borderRadius: '3px', overflow: 'hidden', background: '#1e293b', width: `${barW}%`, minWidth: '8px' }}>
+                                  <div style={{ display: 'flex', height: '100%' }}>
+                                    <div style={{ width: `${buyPct}%`, background: '#10b981' }} />
+                                    <div style={{ width: `${selPct}%`, background: '#ef4444' }} />
+                                  </div>
+                                </div>
+                                <span style={{ fontSize: '0.65rem', textAlign: 'right', color: net >= 0 ? '#10b981' : '#ef4444', fontWeight: 600 }}>{net >= 0 ? '+' : ''}{net.toFixed(2)}</span>
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </div>
+                    );
+                  })()}
+                </div>
+
+              </div>
             </div>
           )}
         </div>
       )}
 
       {l === 'capital' && (
-        <div className="capital-flow-tab">
-          <div className="cf-header">
-            <h2>💰 Asset Class Capital Flow Rotation</h2>
-            <p className="muted-sm">{t.capitalDescription}</p>
-            <button className="btn-secondary" onClick={() => fetchCapital(true)} disabled={ks}>
-              {ks ? t.loading : t.capitalRefresh}
+        <div className="capital-flow-tab" style={{ padding: '1rem 0' }}>
+          <div className="analytics-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: '1.5rem' }}>💰</span>
+              <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700, color: '#e2e8f0' }}>
+                Capital Flow Map
+              </h2>
+            </div>
+            <button 
+              className="btn-tv-fetch" 
+              onClick={() => fetchCapital(true)} 
+              disabled={ks}
+              style={{ background: '#10b98122', border: '1px solid #10b98144', color: '#10b981', padding: '0.5rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+            >
+              🔄 {t.capitalRefresh || 'Ανανέωση'}
             </button>
           </div>
+          <p className="muted-sm" style={{ marginTop: '-1rem', marginBottom: '1.5rem', color: '#94a3b8' }}>
+            {t.capitalDescription}
+          </p>
 
           {!lt && !ks && <div className="cf-empty">{t.capitalEmpty}</div>}
+          {ks && <div className="cf-empty">{t.loading}</div>}
 
-          {lt && (
-            <div className="cf-grid">
-              {Object.entries(lt).map(([asset, flow]) => {
-                if (asset === 'available') return null;
-                const isDown = flow['1d'] < 0;
-                return (
-                  <div
-                    key={asset}
-                    className="cf-card"
-                    style={{ borderLeftColor: isDown ? '#ef4444' : '#10b981' }}
-                  >
-                    <div className="cf-label">{asset}</div>
-                    <div className="cf-flow" style={{ color: isDown ? '#ef4444' : '#10b981' }}>
-                      {flow['1d'] > 0 ? '▲' : flow['1d'] < 0 ? '▼' : '■'} {flow['1d']?.toFixed(2)}%
+          {lt && lt.classes && (
+            <div>
+              <div className="cf-grid" style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(200px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                {lt.classes.map((cls) => {
+                  if (!cls.available) return null;
+                  const isDown = cls.change1d < 0;
+                  const isNeutral = cls.flow === 'NEUTRAL';
+                  const flowColor = isNeutral ? '#fbbf24' : isDown ? '#ef4444' : '#10b981';
+                  const flowSymbol = isNeutral ? '■' : isDown ? '▼' : '▲';
+                  return (
+                    <div
+                      key={cls.key}
+                      className="cf-card"
+                      style={{ 
+                        borderLeft: `4px solid ${flowColor}`,
+                        padding: '1rem',
+                        borderRadius: '8px',
+                        backgroundColor: '#1e293b44',
+                        border: '1px solid #1e293b',
+                        display: 'flex',
+                        flexDirection: 'column',
+                        gap: '0.4rem'
+                      }}
+                    >
+                      <div className="cf-label" style={{ fontSize: '0.75rem', fontWeight: 700, color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em' }}>
+                        {cls.label}
+                      </div>
+                      <div className="cf-flow" style={{ color: flowColor, fontSize: '1.1rem', fontWeight: 800, display: 'flex', alignItems: 'center', gap: '0.3rem', margin: '0.2rem 0' }}>
+                        <span>{flowSymbol}</span>
+                        <span>{cls.flow}</span>
+                      </div>
+                      <div className="cf-7d" style={{ fontSize: '0.85rem', fontWeight: 700, color: flowColor }}>
+                        {cls.change1d > 0 ? '+' : ''}{cls.change1d?.toFixed(2)}%
+                        <span style={{ color: '#64748b', fontWeight: 500, fontSize: '0.75rem', marginLeft: '0.4rem' }}>
+                          (7d {cls.change7d > 0 ? '+' : ''}{cls.change7d?.toFixed(2)}%)
+                        </span>
+                      </div>
+                      <div className="cf-sub" style={{ fontSize: '0.75rem', color: '#64748b', marginTop: '0.2rem' }}>
+                        {cls.symbol} @ {cls.price}
+                      </div>
                     </div>
-                    <div className="cf-7d">7d change: {flow['7d']?.toFixed(2)}%</div>
-                    <div className="cf-sub">Price: ${flow.price}</div>
-                    <div className="cf-symbol">{flow.symbol}</div>
-                  </div>
-                );
-              })}
+                  );
+                })}
+              </div>
+              
+              {/* Anchor & Timestamp Info */}
+              <div className="cf-footer" style={{ textAlign: 'center', fontSize: '0.8rem', color: '#64748b', marginTop: '1.5rem' }}>
+                {lt.btcUsd && `BTC/USD anchor: $${lt.btcUsd.toLocaleString('el-GR', { minimumFractionDigits: 2 })} · `}
+                Generated: {new Date(lt.generatedAt).toLocaleTimeString('el-GR', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: false })}{new Date(lt.generatedAt).getHours() >= 12 ? ' μ.μ.' : ' π.μ.'}
+              </div>
             </div>
           )}
         </div>
@@ -1669,113 +1966,249 @@ export default function App() {
       )}
 
       {l === 'analytics' && (
-        <div className="capital-flow-tab">
-          <h2>{t.analyticsTitle}</h2>
-          <p className="muted-sm">{t.analyticsSubtitle}</p>
+        <div className="capital-flow-tab" style={{ padding: '1rem 0' }}>
+          <div className="analytics-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <div>
+              <h2 style={{ margin: 0, fontSize: '1.5rem', fontWeight: 700, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                📊 ARIS System Performance Analytics
+              </h2>
+              <p className="muted-sm" style={{ margin: '0.2rem 0 0 0', color: '#94a3b8' }}>
+                Live forward-testing performance metrics and calibration
+              </p>
+            </div>
+            <button
+              className="btn-tv-fetch"
+              onClick={() => fetchAnalytics()}
+              disabled={ba}
+              style={{ background: '#3b82f622', border: '1px solid #3b82f644', color: '#60a5fa', padding: '0.5rem 1rem', borderRadius: '6px', cursor: 'pointer', fontWeight: 600, display: 'flex', alignItems: 'center', gap: '0.4rem' }}
+            >
+              🔄 Refresh Stats
+            </button>
+          </div>
 
-          {ba && <div className="cf-empty">{t.loading}</div>}
+          {!D && ba && <div className="cf-empty">{t.loading}</div>}
 
           {D && (
-            <div style={{ marginTop: '1.5rem' }}>
-              <div className="tracker-stats-bar">
-                <div className="tracker-stat-box">
-                  <span className="stat-label">Total Closed</span>
-                  <span className="stat-value">{D.summary?.closed ?? 0}</span>
+            <div>
+              {/* 4-Card Performance Grid */}
+              <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(240px, 1fr))', gap: '1rem', marginBottom: '1.5rem' }}>
+                
+                {/* 1. Performance Summary */}
+                <div className="panel" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '220px' }}>
+                  <div>
+                    <h3 style={{ fontSize: '0.9rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      📈 Performance Summary
+                    </h3>
+                    <div style={{ display: 'flex', flexDirection: 'column', gap: '0.35rem', fontSize: '0.85rem' }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Total Closed Trades</span>
+                        <strong style={{ color: '#e2e8f0' }}>{D.summary?.closed ?? 0}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Wins (TP Hit)</span>
+                        <strong style={{ color: '#10b981' }}>{D.summary?.wins ?? 0}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Losses (SL Hit)</span>
+                        <strong style={{ color: '#ef4444' }}>{D.summary?.losses ?? 0}</strong>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                        <span>Active Tracks</span>
+                        <strong style={{ color: '#06b6d4' }}>{D.summary?.active ?? 0}</strong>
+                      </div>
+                    </div>
+                  </div>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'baseline', marginTop: '1rem', paddingTop: '0.75rem', borderTop: '1px solid #1e293b' }}>
+                    <span style={{ fontSize: '1.4rem', fontWeight: 800, color: '#10b981' }}>{D.summary?.winRate ?? 0}% WR</span>
+                    <span style={{ fontSize: '0.85rem', color: '#94a3b8' }}>
+                      Expectancy: <strong style={{ color: '#10b981' }}>{D.summary?.expectancy != null ? (D.summary.expectancy >= 0 ? '+' : '') + Number(D.summary.expectancy).toFixed(2) + ' R' : '0 R'}</strong>
+                    </span>
+                  </div>
                 </div>
-                <div className="tracker-stat-box">
-                  <span className="stat-label">Wins (TP)</span>
-                  <span className="stat-value green">{D.summary?.wins ?? 0}</span>
+
+                {/* 2. Circuit Breaker */}
+                <div className="panel" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '220px', borderLeft: `4px solid ${D.circuitBreaker?.tripped ? '#ef4444' : '#10b981'}` }}>
+                  <div>
+                    <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.8rem' }}>
+                      <h3 style={{ fontSize: '0.9rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', margin: 0, display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                        🛡️ Circuit Breaker
+                      </h3>
+                      <span style={{
+                        fontSize: '0.7rem', fontWeight: 800, padding: '0.15rem 0.5rem', borderRadius: '4px',
+                        background: D.circuitBreaker?.tripped ? '#ef444422' : '#10b98122',
+                        color: D.circuitBreaker?.tripped ? '#ef4444' : '#10b981'
+                      }}>
+                        {D.circuitBreaker?.tripped ? 'TRIPPED' : 'OPERATIONAL'}
+                      </span>
+                    </div>
+                    <p style={{ fontSize: '0.78rem', color: '#94a3b8', lineHeight: 1.4, margin: '0 0 1rem 0' }}>
+                      Locks the automatic scanner after 3 consecutive failed trades to prevent drawdowns.
+                    </p>
+                    <div style={{ fontSize: '0.85rem' }}>
+                      Consecutive Streak: <strong style={{ color: D.circuitBreaker?.tripped ? '#ef4444' : '#e2e8f0' }}>{D.circuitBreaker?.consecutiveFails ?? 0} / 3</strong>
+                    </div>
+                  </div>
+                  {D.circuitBreaker?.tripped && (
+                    <button className="btn-clear" onClick={resetBreaker} style={{ marginTop: '1rem', width: '100%' }}>
+                      Reset Breaker
+                    </button>
+                  )}
                 </div>
-                <div className="tracker-stat-box">
-                  <span className="stat-label">Losses (SL)</span>
-                  <span className="stat-value red">{D.summary?.losses ?? 0}</span>
+
+                {/* 3. Personal Leaderboard */}
+                {(() => {
+                  const pb = D.leaderboard || D.personalBests || {};
+                  return (
+                    <div className="panel" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'space-between', minHeight: '220px', borderLeft: '4px solid #fbbf24' }}>
+                      <div>
+                        <h3 style={{ fontSize: '0.9rem', color: '#fbbf24', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '0.8rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                          🏆 Personal Leaderboard
+                        </h3>
+                        <div style={{ display: 'flex', flexDirection: 'column', gap: '0.3rem', fontSize: '0.82rem' }}>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#94a3b8' }}>🔥 Current Win Streak</span>
+                            <strong style={{ color: '#10b981' }}>{pb.currentWinStreak ?? 0}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#94a3b8' }}>🏆 Best Win Streak</span>
+                            <strong style={{ color: '#10b981' }}>{pb.bestWinStreak ?? 0}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#94a3b8' }}>📩 Worst Loss Streak</span>
+                            <strong style={{ color: '#ef4444' }}>{pb.worstLossStreak ?? 0}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#94a3b8' }}>💎 Best R Trade</span>
+                            <strong style={{ color: '#10b981' }}>{pb.bestR != null ? (pb.bestR >= 0 ? '+' : '') + pb.bestR.toFixed(2) + 'R' : '—'}</strong>
+                          </div>
+                          <div style={{ display: 'flex', justifyContent: 'space-between' }}>
+                            <span style={{ color: '#94a3b8' }}>💀 Worst R Trade</span>
+                            <strong style={{ color: '#ef4444' }}>{pb.worstR != null ? pb.worstR.toFixed(2) + 'R' : '—'}</strong>
+                          </div>
+                        </div>
+                      </div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginTop: '0.75rem', paddingTop: '0.5rem', borderTop: '1px solid #1e293b' }}>
+                        <span style={{ fontSize: '0.8rem', color: '#94a3b8' }}>📊 Total R</span>
+                        <strong style={{ fontSize: '1rem', color: (pb.totalR ?? 0) >= 0 ? '#10b981' : '#ef4444' }}>
+                          {(pb.totalR ?? 0) >= 0 ? '+' : ''}{(pb.totalR ?? 0).toFixed(2)}R
+                        </strong>
+                      </div>
+                    </div>
+                  );
+                })()}
+
+                {/* 4. Performance by Bias */}
+                <div className="panel" style={{ display: 'flex', flexDirection: 'column', justifyContent: 'flex-start', minHeight: '220px' }}>
+                  <h3 style={{ fontSize: '0.9rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1.2rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    ⚖️ Performance by Bias
+                  </h3>
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem', fontSize: '0.9rem' }}>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                        <span style={{ color: '#10b981', fontWeight: 600 }}>🟢 LONG (Bullish)</span>
+                        <strong style={{ color: '#e2e8f0' }}>{D.byDirection?.LONG?.winRate ?? 0}%</strong>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                        {D.byDirection?.LONG?.wins ?? 0}W / {D.byDirection?.LONG?.losses ?? 0}L
+                      </div>
+                    </div>
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginBottom: '0.3rem' }}>
+                        <span style={{ color: '#ef4444', fontWeight: 600 }}>🔴 SHORT (Bearish)</span>
+                        <strong style={{ color: '#e2e8f0' }}>{D.byDirection?.SHORT?.winRate ?? 0}%</strong>
+                      </div>
+                      <div style={{ fontSize: '0.75rem', color: '#94a3b8' }}>
+                        {D.byDirection?.SHORT?.wins ?? 0}W / {D.byDirection?.SHORT?.losses ?? 0}L
+                      </div>
+                    </div>
+                  </div>
                 </div>
-                <div className="tracker-stat-box">
-                  <span className="stat-label">Win Rate</span>
-                  <span className="stat-value cyan">{D.summary?.winRate ?? 0}%</span>
-                </div>
-                <div className="tracker-stat-box">
-                  <span className="stat-label">Expectancy</span>
-                  <span className="stat-value">{D.summary?.expectancy != null ? (D.summary.expectancy > 0 ? '+' : '') + Number(D.summary.expectancy).toFixed(2) + ' R' : '0 R'}</span>
-                </div>
+
               </div>
 
-              {/* Circuit Breaker Status */}
-              <div className="panel" style={{ marginBottom: '1.5rem', borderLeft: `4px solid ${D.circuitBreaker?.tripped ? '#ef4444' : '#10b981'}` }}>
-                <h3 style={{ fontSize: '1.1rem', color: D.circuitBreaker?.tripped ? '#ef4444' : '#10b981' }}>
-                  🛡️ {t.circuitBreaker}: {D.circuitBreaker?.tripped ? t.tripped : t.operational}
-                </h3>
-                <p className="muted-sm" style={{ marginTop: '0.2rem' }}>
-                  {t.breakerDesc}
-                </p>
-                <div className="h-level-row" style={{ margin: '0.8rem 0' }}>
-                  <span>Consecutive Fails: <strong>{D.circuitBreaker?.consecutiveFails} / 3</strong></span>
-                </div>
-                {D.circuitBreaker?.tripped && (
-                  <button className="btn-clear" onClick={resetBreaker}>
-                    {t.resetBreaker}
-                  </button>
-                )}
-              </div>
-
-              {/* Personal Leaderboard */}
+              {/* Deterministic Sizing Rules */}
               <div className="panel" style={{ marginBottom: '1.5rem' }}>
-                <h3 style={{ fontSize: '1.1rem' }}>🏆 {t.leaderboardTitle}</h3>
-                <p className="muted-sm">{t.leaderboardDesc}</p>
-                <div className="levels-grid" style={{ marginTop: '1rem' }}>
-                  <div className="level-card">
-                    <div className="card-title">{t.currentWinStreak}</div>
-                    <div className="level-value green">{D.leaderboard?.currentWinStreak || 0}</div>
-                  </div>
-                  <div className="level-card">
-                    <div className="card-title">{t.bestWinStreak}</div>
-                    <div className="level-value green">{D.leaderboard?.bestWinStreak || 0}</div>
-                  </div>
-                  <div className="level-card">
-                    <div className="card-title">{t.worstLossStreak}</div>
-                    <div className="level-value red">{D.leaderboard?.worstLossStreak || 0}</div>
-                  </div>
-                </div>
-                <div className="levels-grid" style={{ marginTop: '0.5rem' }}>
-                  <div className="level-card">
-                    <div className="card-title">{t.bestRTrade}</div>
-                    <div className="level-value green">+{D.leaderboard?.bestRTrade?.toFixed(1) || 0}R</div>
-                  </div>
-                  <div className="level-card">
-                    <div className="card-title">{t.worstRTrade}</div>
-                    <div className="level-value red">{D.leaderboard?.worstRTrade?.toFixed(1) || 0}R</div>
-                  </div>
-                  <div className="level-card">
-                    <div className="card-title">{t.totalR}</div>
-                    <div className="level-value" style={{ color: D.leaderboard?.totalR >= 0 ? '#10b981' : '#ef4444' }}>
-                      {D.leaderboard?.totalR >= 0 ? '+' : ''}{D.leaderboard?.totalR?.toFixed(1) || 0}R
+                <h3 style={{ fontSize: '0.9rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                  📐 Deterministic Sizing Rules
+                </h3>
+                <div style={{ display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem' }}>
+                  {[
+                    { grade: 'Grade A+', risk: '1.0% Risk', color: '#10b981' },
+                    { grade: 'Grade A', risk: '0.75% Risk', color: '#10b981' },
+                    { grade: 'Grade B+', risk: '0.5% Risk', color: '#fbbf24' },
+                    { grade: 'Grade B', risk: '0.25% Risk', color: '#fbbf24' },
+                    { grade: 'Grade C', risk: 'Monitor Only (0% Risk)', color: '#94a3b8' }
+                  ].map((rule, idx) => (
+                    <div key={idx} style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', padding: '0.5rem 0.8rem', backgroundColor: '#1e293b44', borderRadius: '6px', border: '1px solid #1e293b' }}>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 600, color: '#cbd5e1' }}>{rule.grade}</span>
+                      <span style={{ fontSize: '0.85rem', fontWeight: 700, color: rule.color }}>{rule.risk}</span>
                     </div>
-                  </div>
+                  ))}
                 </div>
               </div>
 
-              {/* Directional statistics */}
-              {D.directionStats && (
-                <div className="panel">
-                  <h3 style={{ fontSize: '1.1rem', marginBottom: '0.8rem' }}>{t.directionStats}</h3>
-                  <div className="levels-grid">
-                    <div className="level-card">
-                      <div className="card-title" style={{ color: '#10b981' }}>🟢 LONG SETUPS</div>
-                      <div className="level-value green">{D.byDirection?.LONG?.winRate ?? 0}%</div>
-                      <div className="muted-sm">
-                        {D.byDirection?.LONG?.wins ?? 0} Wins / {D.byDirection?.LONG?.losses ?? 0} Losses
-                      </div>
-                    </div>
-                    <div className="level-card">
-                      <div className="card-title" style={{ color: '#ef4444' }}>🔴 SHORT SETUPS</div>
-                      <div className="level-value red">{D.byDirection?.SHORT?.winRate ?? 0}%</div>
-                      <div className="muted-sm">
-                        {D.byDirection?.SHORT?.wins ?? 0} Wins / {D.byDirection?.SHORT?.losses ?? 0} Losses
-                      </div>
-                    </div>
+              {/* Recent Executions */}
+              {D.recentPerformance?.trades && (
+                <div className="panel" style={{ padding: '1rem 0' }}>
+                  <h3 style={{ fontSize: '0.9rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    🎯 Recent Executions
+                  </h3>
+                  <div style={{ overflowX: 'auto' }}>
+                    <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
+                      <thead>
+                        <tr style={{ borderBottom: '1px solid #1e293b', color: '#94a3b8' }}>
+                          <th style={{ padding: '0.75rem 1rem' }}>Asset</th>
+                          <th style={{ padding: '0.75rem 1rem' }}>Bias</th>
+                          <th style={{ padding: '0.75rem 1rem' }}>Grade</th>
+                          <th style={{ padding: '0.75rem 1rem' }}>Result</th>
+                          <th style={{ padding: '0.75rem 1rem' }}>R:R</th>
+                          <th style={{ padding: '0.75rem 1rem' }}>Closed At</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {D.recentPerformance.trades.map((trade, idx) => (
+                          <tr key={idx} style={{ borderBottom: '1px solid #1e293b44', color: '#cbd5e1' }}>
+                            <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>{trade.instrument}</th>
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              <span style={{ color: trade.direction === 'LONG' ? '#10b981' : '#ef4444', fontWeight: 600 }}>
+                                {trade.direction}
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem', fontWeight: 600 }}>{trade.grade}</td>
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              <span style={{
+                                display: 'inline-block',
+                                padding: '0.15rem 0.4rem',
+                                borderRadius: '4px',
+                                fontSize: '0.75rem',
+                                fontWeight: 700,
+                                backgroundColor: trade.status === 'SUCCESS' ? '#10b98122' : '#ef444422',
+                                color: trade.status === 'SUCCESS' ? '#10b981' : '#ef4444'
+                              }}>
+                                {trade.status}
+                              </span>
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem' }}>
+                              {trade.rr ? `${trade.rr}x` : '—'}
+                            </td>
+                            <td style={{ padding: '0.75rem 1rem', color: '#94a3b8' }}>
+                              {trade.closedAt ? new Date(trade.closedAt).toLocaleString('el-GR', {
+                                day: 'numeric',
+                                month: 'numeric',
+                                year: 'numeric',
+                                hour: 'numeric',
+                                minute: '2-digit',
+                                hour12: true
+                              }).replace('π.μ.', 'π.μ.').replace('μ.μ.', 'μ.μ.') : '—'}
+                            </td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
                   </div>
                 </div>
               )}
+
             </div>
           )}
         </div>

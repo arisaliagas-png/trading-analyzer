@@ -151,6 +151,12 @@ export class HeatmapAggregator {
     // and only promote it to a STABLE target after it survives N snapshots.
     this.wallTracker = {};      // id -> { side, price, qty, firstSeen, lastSeen, hits, lastQty }
     this.stableWhaleWalls = [];  // walls that passed the persistence threshold
+
+    // ── Trade Tape & Ledger ──
+    this.recentTrades = [];       // last 120 individual trades (Time & Sales tape)
+    this.tradeLedger = [];        // 1-second aggregated buckets (last 60 seconds)
+    this._ledgerSecond = 0;       // current 1-sec bucket key
+    this._ledgerBucket = null;    // current open bucket
   }
 
   setSymbol(symbol) {
@@ -163,6 +169,10 @@ export class HeatmapAggregator {
     this.footprint.reset();
     this.wallTracker = {};
     this.stableWhaleWalls = [];
+    this.recentTrades = [];
+    this.tradeLedger = [];
+    this._ledgerSecond = 0;
+    this._ledgerBucket = null;
     
     if (this.running) {
       // Instantly terminate all active sockets to trigger immediate reconnection with the new symbol
@@ -699,11 +709,42 @@ export class HeatmapAggregator {
       footprint: (() => {
         try { return this.footprint.getSnapshot(); }
         catch { return { active: [], poc: 0, absorption: { type: 'NONE', strength: 0, price: 0 }, timestamp: 0 }; }
+      })(),
+      // ── Trade Tape & Aggregate Ledger ──
+      recentTrades: this.recentTrades.slice(-50).reverse(), // newest first, last 50
+      tradeLedger: (() => {
+        // Include the still-open current bucket so the chart is live
+        const ledger = [...this.tradeLedger];
+        if (this._ledgerBucket) ledger.push({ ...this._ledgerBucket });
+        return ledger.slice(-60).reverse(); // newest first
       })()
     };
 
     this.lastSnapshot = snapshot;
     return snapshot;
+  }
+
+  // ── Trade Tape & Ledger helper ────────────────────────────────────────────
+  _addToLedger(price, qty, isSell, exchange) {
+    const now = Date.now();
+    const secKey = Math.floor(now / 1000);
+
+    // ① Individual tape (newest first after reverse in snapshot)
+    this.recentTrades.push({ t: now, p: price, q: qty, side: isSell ? 'sell' : 'buy', ex: exchange });
+    if (this.recentTrades.length > 120) this.recentTrades.shift();
+
+    // ② 1-second aggregate bucket
+    if (secKey !== this._ledgerSecond) {
+      if (this._ledgerBucket) {
+        this.tradeLedger.push(this._ledgerBucket);
+        if (this.tradeLedger.length > 60) this.tradeLedger.shift();
+      }
+      this._ledgerBucket = { t: secKey * 1000, buyVol: 0, sellVol: 0, count: 0 };
+      this._ledgerSecond = secKey;
+    }
+    if (isSell) { this._ledgerBucket.sellVol += qty; }
+    else        { this._ledgerBucket.buyVol  += qty; }
+    this._ledgerBucket.count++;
   }
 
   // ── Binance Trades (Perpetuals) ───────────────────────────────────────────
@@ -717,7 +758,9 @@ export class HeatmapAggregator {
         // m: isBuyerMaker (true = sell taker hit bid, false = buy taker hit ask)
         const price = parseFloat(msg.p);
         const qty = parseFloat(msg.q);
-        this.footprint.addTrade(price, qty, msg.m);
+        const isSell = msg.m; // isBuyerMaker
+        this.footprint.addTrade(price, qty, isSell);
+        this._addToLedger(price, qty, isSell, 'BIN');
       } catch {}
     });
     ws.on('error', e => console.error('[Footprint] Binance Trades Error:', e.message));
@@ -742,9 +785,9 @@ export class HeatmapAggregator {
         msg.data.forEach(t => {
           const price = parseFloat(t.p);
           const qty = parseFloat(t.v);
-          // Bybit: side is 'Buy' or 'Sell' (taker side)
-          // We map side='Sell' to isBuyerMaker = true
-          this.footprint.addTrade(price, qty, t.S === 'Sell');
+          const isSell = t.S === 'Sell';
+          this.footprint.addTrade(price, qty, isSell);
+          this._addToLedger(price, qty, isSell, 'BYB');
         });
       } catch {}
     });
@@ -773,9 +816,9 @@ export class HeatmapAggregator {
         msg.data.forEach(t => {
           const price = parseFloat(t.px);
           const qty = parseFloat(t.sz);
-          // OKX: side is 'buy' or 'sell' (taker side)
-          // We map side='sell' to isBuyerMaker = true
-          this.footprint.addTrade(price, qty, t.side === 'sell');
+          const isSell = t.side === 'sell';
+          this.footprint.addTrade(price, qty, isSell);
+          this._addToLedger(price, qty, isSell, 'OKX');
         });
       } catch {}
     });
