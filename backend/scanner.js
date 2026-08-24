@@ -112,6 +112,38 @@ function applyLessonVeto({ engine, tradeDir, liveCvdBias }) {
     reasons.push(`Entry OUTSIDE OTE zone with low conviction (mega ${score}/28) — late/exhausted entry trap (lesson ETHUSDT/DOTUSDT)`);
   }
 
+  // R6 — Counter-trend entry in a TREND regime (from SHORT lessons #5/#9/#21):
+  //   SHORT into confirmed uptrend (ADX≥25, structure UP) or LONG into downtrend
+  //   with only a single resistance rejection = fade-of-strong-move trap.
+  //   Symmetric: fires when tradeDir opposes the structural trend under TREND regime.
+  const regime = engine.regime || 'RANGE';
+  const structTrend = engine.structure?.trend || null; // 'UP' | 'DOWN' | null
+  if (regime === 'TREND' && structTrend) {
+    const opposes = (tradeDir === 'SHORT' && structTrend === 'UP') ||
+                    (tradeDir === 'LONG' && structTrend === 'DOWN');
+    if (opposes) {
+      violated.push('R6_TREND');
+      reasons.push(`Counter-trend ${tradeDir} in TREND regime (structure ${structTrend}) — fade-of-strong-move trap (lesson ADAUSDT/BTCUSDT)`);
+    }
+  }
+
+  // R7 — Tight SL / insufficient volatility buffer (from SHORT lessons #16/#18):
+  //   SL placed too close to entry (<0.5% buffer) gets wicked out by normal
+  //   intrabar volatility before the directional move develops.
+  //   Symmetric — checks the computed SL distance vs entry as a % of price.
+  const ote = engine.ote || {};
+  const entry = ote.entry ?? ote.entryPrice ?? null;
+  const sl = ote.sl ?? null;
+  if (entry != null && sl != null && entry > 0) {
+    const slDistPct = tradeDir === 'SHORT'
+      ? Math.abs((sl - entry) / entry) * 100
+      : Math.abs((entry - sl) / entry) * 100;
+    if (slDistPct < 0.5) {
+      violated.push('R7_SL');
+      reasons.push(`Stop Loss too tight (${slDistPct.toFixed(2)}% buffer < 0.5%) — normal volatility wick-out trap (lesson BNBUSDT/ADAUSDT)`);
+    }
+  }
+
   if (violated.length === 0) return { veto: false, reason: null, violatedRules: [] };
   return {
     veto: true,
