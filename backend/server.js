@@ -528,6 +528,43 @@ app.get('/api/analytics', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// LIVE PRICES — batch Binance ticker for active trade PnL
+// ─────────────────────────────────────────────
+app.get('/api/prices', async (req, res) => {
+  try {
+    const raw = req.query.symbols;
+    if (!raw) return res.json({ prices: {} });
+    const symbols = (Array.isArray(raw) ? raw : String(raw).split(',')).map(s => String(s).trim().toUpperCase()).filter(Boolean);
+    const prices = {};
+    await Promise.all(symbols.map(async (sym) => {
+      const clean = sym.replace(/[\/\.\-]/g, '').replace(/P$/i, '');
+      try {
+        const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${clean}`);
+        if (r.ok) {
+          const d = await r.json();
+          prices[sym] = parseFloat(d.price);
+        } else if (r.status === 400) {
+          // Try Hyperliquid for alts/perps not on Binance spot
+          const hl = await fetch(`https://api.hyperliquid.xyz/info`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({ type: 'allMids' })
+          });
+          if (hl.ok) {
+            const mids = await hl.json();
+            const key = Object.keys(mids).find(k => k.toUpperCase() === clean);
+            if (key) prices[sym] = parseFloat(mids[key]);
+          }
+        }
+      } catch { /* skip */ }
+    }));
+    res.json({ prices, ts: Date.now() });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
 // HEATMAP — instant snapshot (for AI context)
 // ─────────────────────────────────────────────
 app.get('/api/heatmap-snapshot', (req, res) => {

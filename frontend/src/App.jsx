@@ -280,6 +280,8 @@ export default function App() {
   const [Ts, setTsInput] = useState('');
   const [cr, setCrChatting] = useState(false);
   const [st, setStEarly] = useState(null);
+  const [livePrices, setLivePrices] = useState({});
+  const [livePricesTs, setLivePricesTs] = useState(0);
   const [sl, setSlLoading] = useState(false);
 
   const fileInputRef = useRef(null);
@@ -340,6 +342,25 @@ export default function App() {
     }
   };
 
+  // Live prices for ACTIVE trades — poll Binance ticker every 5s so PnL updates in real time
+  const loadLivePrices = async () => {
+    try {
+      const active = (GHistory || []).filter(t => t.status === 'ACTIVE' || t.status === 'PENDING');
+      const symbols = [...new Set(active.map(t => (t.instrument || '').toUpperCase()).filter(Boolean))];
+      if (symbols.length === 0) { setLivePrices({}); return; }
+      const res = await fetch(`${API_BASE}/api/prices?symbols=${symbols.join(',')}`);
+      if (res.ok) {
+        const data = await res.json();
+        if (data.prices) {
+          setLivePrices(data.prices);
+          setLivePricesTs(data.ts || Date.now());
+        }
+      }
+    } catch (err) {
+      console.warn('Failed to load live prices:', err);
+    }
+  };
+
   const loadSignals = async () => {
     try {
       const res = await fetch(`${API_BASE}/api/signals`);
@@ -372,15 +393,18 @@ export default function App() {
     loadHistory();
     loadSignals();
     loadScannerStatus();
+    loadLivePrices();
 
     const historyInterval = setInterval(loadHistory, 30000);
     const signalInterval = setInterval(loadSignals, 5000);
     const scannerInterval = setInterval(loadScannerStatus, 2000);
+    const pricesInterval = setInterval(loadLivePrices, 5000);
 
     return () => {
       clearInterval(historyInterval);
       clearInterval(signalInterval);
       clearInterval(scannerInterval);
+      clearInterval(pricesInterval);
     };
   }, []);
 
@@ -1237,7 +1261,12 @@ export default function App() {
                   return n.toFixed(2);
                 };
 
-                const lastPrice = card.closePrice || (card.historyPrices?.length > 0 ? card.historyPrices[card.historyPrices.length - 1]?.price : null);
+                // Prefer live Binance ticker price for ACTIVE/PENDING; fall back to historical snapshot
+                const symKey = (card.instrument || '').toUpperCase();
+                const livePx = livePrices[symKey];
+                const lastPrice = (livePx != null && (card.status === 'ACTIVE' || card.status === 'PENDING'))
+                  ? livePx
+                  : (card.closePrice || (card.historyPrices?.length > 0 ? card.historyPrices[card.historyPrices.length - 1]?.price : null));
                 const livePnL = (lastPrice && entryPrice && Number(entryPrice) > 0)
                   ? ((Number(lastPrice) - Number(entryPrice)) / Number(entryPrice)) * 100 * (card.direction === 'SHORT' ? -1 : 1)
                   : null;
@@ -1264,13 +1293,20 @@ export default function App() {
                         {card.instrument}
                         <span className="h-tf">{card.timeframe || '1h'}</span>
                       </span>
-                      <span
-                        className="h-status-badge"
-                        style={{
-                          backgroundColor: card.status === 'SUCCESS' ? '#10b981' : card.status === 'FAILED' ? '#ef4444' : card.status === 'ACTIVE' ? '#06b6d4' : '#fbbf24'
-                        }}
-                      >
-                        {card.status}
+                      <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                        {card.createdAt && (
+                          <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
+                            {new Date(card.createdAt).toLocaleString('el-GR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                          </span>
+                        )}
+                        <span
+                          className="h-status-badge"
+                          style={{
+                            backgroundColor: card.status === 'SUCCESS' ? '#10b981' : card.status === 'FAILED' ? '#ef4444' : card.status === 'ACTIVE' ? '#06b6d4' : '#fbbf24'
+                          }}
+                        >
+                          {card.status}
+                        </span>
                       </span>
                     </div>
 
