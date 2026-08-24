@@ -187,10 +187,10 @@ app.post('/api/fetch-tradingview', async (req, res) => {
   };
 
   try {
-    // First attempt: If it is a TradingView share snapshot link (e.g. tradingview.com/x/ABCDEF/), 
+    // First attempt: If it is a TradingView share snapshot link (e.g. tradingview.com/x/ABCDEF/),
     // convert it directly to the static S3 CDN image URL which is fast and bypasses HTML parsing.
     let targetUrl = url;
-    const tvXMatch = url.match(/tradingview\.com\/x\/([a-zA-Z0-9]+)\/?$/);
+    const tvXMatch = url.match(/tradingview\.com\/x\/([a-zA-Z0-9]+)/i);
     if (tvXMatch) {
       const code = tvXMatch[1];
       targetUrl = `https://s3.amazonaws.com/tradingview/snapshots/${code.slice(0, 1).toLowerCase()}/${code}.png`;

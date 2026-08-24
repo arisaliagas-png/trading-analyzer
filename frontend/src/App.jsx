@@ -451,11 +451,24 @@ export default function App() {
       const data = await res.json();
       if (!res.ok) throw new Error(data.error || 'Failed to fetch TV chart.');
       
-      const blobRes = await fetch(data.image);
-      const blob = await blobRes.blob();
-      const file = new File([blob], 'chart.png', { type: data.mimeType || 'image/png' });
+      // data.image is a base64 data: URL — parse it directly into a File (no fetch, which fails on data: URLs in browsers)
+      const dataUrl = data.image;
+      const mimeMatch = dataUrl.match(/^data:([^;]+);base64,(.+)$/);
+      let file;
+      if (mimeMatch) {
+        const mime = mimeMatch[1];
+        const bin = atob(mimeMatch[2]);
+        const arr = new Uint8Array(bin.length);
+        for (let i = 0; i < bin.length; i++) arr[i] = bin.charCodeAt(i);
+        file = new File([arr], 'chart.png', { type: mime });
+      } else {
+        // Fallback: try fetching if it's a real URL
+        const blobRes = await fetch(dataUrl);
+        const blob = await blobRes.blob();
+        file = new File([blob], 'chart.png', { type: data.mimeType || 'image/png' });
+      }
       setM(file);
-      setEUrl(data.image);
+      setEUrl(dataUrl);
       setGResult(null);
       setIResult(null);
     } catch (err) {
