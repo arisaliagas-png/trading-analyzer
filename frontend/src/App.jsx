@@ -563,7 +563,7 @@ export default function App() {
 
   // Canvas Drawing for Levels overlay
   useEffect(() => {
-    if (!canvasRef.current || !E || !g) return;
+    if (!canvasRef.current || !E) return;
     const canvas = canvasRef.current;
     const ctx = canvas.getContext('2d');
     const img = new Image();
@@ -572,12 +572,13 @@ export default function App() {
       canvas.height = img.naturalHeight;
       ctx.drawImage(img, 0, 0);
 
-      // Check overlay fields or fall back to drawing lines
+      // Only draw level overlays if analysis result (g) is present
+      if (!g) return;
       const sl = g.sl;
       const entry = g.entry;
       const targets = g.targets || [];
       const overlay = g.overlay || {};
-      
+
       const priceMin = overlay.priceMin;
       const priceMax = overlay.priceMax;
 
@@ -603,7 +604,7 @@ export default function App() {
         };
 
         if (sl != null) drawLine(getValY(sl), '#ef4444', `SL: $${sl.toFixed(4)}`, true);
-        
+
         if (entry != null) {
           if (typeof entry === 'object' && entry.low != null && entry.high != null) {
             const yLow = getValY(entry.low);
