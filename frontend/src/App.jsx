@@ -345,7 +345,7 @@ export default function App() {
   // Live prices for ACTIVE trades — poll Binance ticker every 5s so PnL updates in real time
   const loadLivePrices = async () => {
     try {
-      const active = (GHistory || []).filter(t => t.status === 'ACTIVE' || t.status === 'PENDING');
+      const active = (G || []).filter(t => t.status === 'ACTIVE' || t.status === 'PENDING');
       const symbols = [...new Set(active.map(t => (t.instrument || '').toUpperCase()).filter(Boolean))];
       if (symbols.length === 0) { setLivePrices({}); return; }
       const res = await fetch(`${API_BASE}/api/prices?symbols=${symbols.join(',')}`);
