@@ -222,12 +222,24 @@ export async function monitorTrades() {
       // Wick-aware hit detection: a candle wick can touch the level without the
       // close reaching it. We approximate by allowing a small tolerance band
       // around TP1/SL — if price came within WICK_TOLERANCE% of the level, treat
-      // it as a touch (prevents missed SL/TP on wicked candles).
+      // as a touch (prevents missed SL/TP on wicked candles).
+      // Fallback to recent historyPrices if currentPrice snapshot missed the hit
+      // (e.g. price wick-touched TP1/SL between polls and fell back).
       const WICK_TOL = 0.0015; // 0.15%
       const tp1Band = trade.tp1 * WICK_TOL;
       const slBand  = trade.sl * WICK_TOL;
-      const hitTp1 = isLong ? (currentPrice >= trade.tp1 - tp1Band) : (currentPrice <= trade.tp1 + tp1Band);
-      const hitSl  = isLong ? (currentPrice <= trade.sl + slBand)   : (currentPrice >= trade.sl - slBand);
+      const historyForHit = trade.historyPrices && trade.historyPrices.length
+        ? trade.historyPrices.slice(-20).map(h => typeof h === 'object' ? h.price : h)
+        : [];
+      const hitFromHistory = (level, band) => historyForHit.some(p =>
+        isLong ? (p >= level - band) : (p <= level + band)
+      );
+      const hitTp1 = (currentPrice
+        ? (isLong ? (currentPrice >= trade.tp1 - tp1Band) : (currentPrice <= trade.tp1 + tp1Band))
+        : false) || hitFromHistory(trade.tp1, tp1Band);
+      const hitSl  = (currentPrice
+        ? (isLong ? (currentPrice <= trade.sl + slBand) : (currentPrice >= trade.sl - slBand))
+        : false) || hitFromHistory(trade.sl, slBand);
 
       if (hitTp1) {
         await updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);

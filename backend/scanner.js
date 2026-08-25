@@ -500,7 +500,7 @@ Return ONLY valid JSON (no markdown, no extra text):
             flowDowngrade = true;
             flowReason = `ΔOI1h ${doi1h}% (falling) + CVD bullish = short-covering, not new demand — weak BUY`;
           }
-          else if (doi1h > 0.3 && cvdBear) { flowQuality = 'BUY_INTO_SELLING'; }
+          else if (doi1h > 0.3 && cvdBear) { flowQuality = 'BUY_INTO_SELLING'; flowDowngrade = true; flowReason = `ΔOI1h ${doi1h}% (rising) + CVD bearish = buying into whale distribution — weak LONG, do NOT auto-execute`; }
           else flowQuality = 'NEUTRAL';
         } else { // SHORT
           if (doi1h > 0.3 && cvdBear) { flowQuality = 'STRONG_SELL_BUILD'; }
@@ -509,7 +509,7 @@ Return ONLY valid JSON (no markdown, no extra text):
             flowDowngrade = true;
             flowReason = `ΔOI1h ${doi1h}% (falling) + CVD bearish = long-flush, not new supply — weak SHORT`;
           }
-          else if (doi1h > 0.3 && cvdBull) { flowQuality = 'SELL_INTO_BUYING'; }
+          else if (doi1h > 0.3 && cvdBull) { flowQuality = 'SELL_INTO_BUYING'; flowDowngrade = true; flowReason = `ΔOI1h ${doi1h}% (rising) + CVD bullish = selling into whale accumulation — weak SHORT, do NOT auto-execute`; }
           else flowQuality = 'NEUTRAL';
         }
         if (flowDowngrade) scannerLog.warn({ symbol, scanId, doi1h, cvd: liveCvdBias || engine.cvdBias }, 'FLOW WEAK (ΔOI) — ' + flowReason);
