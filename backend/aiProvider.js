@@ -381,22 +381,33 @@ export async function askAI(systemPrompt, messages, forceProvider = null) {
       role: m.role === 'assistant' ? 'assistant' : 'user',
       content: m.content
     }))];
-    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-      method: 'POST',
-      headers: {
-        'Content-Type': 'application/json',
-        'Authorization': `Bearer ${apiKey}`,
-        'HTTP-Referer': 'https://trading-analyzer-affqwq.fly.dev',
-        'X-Title': 'ARIS Trading Analyzer'
-      },
-      body: JSON.stringify({ model, messages: oaMessages, max_tokens: 2000, temperature: 0.7 })
-    });
-    if (!response.ok) {
-      const e = await response.text();
-      throw new Error(`OpenRouter API HTTP Error [${response.status}]: ${e}`);
+    let upstreamRetryAfter = 0;
+    for (let attempt = 0; attempt < 4; attempt++) {
+      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+        method: 'POST',
+        headers: {
+          'Content-Type': 'application/json',
+          'Authorization': `Bearer ${apiKey}`,
+          'HTTP-Referer': 'https://trading-analyzer-affqwq.fly.dev',
+          'X-Title': 'ARIS Trading Analyzer'
+        },
+        body: JSON.stringify({ model, messages: oaMessages, max_tokens: 2000, temperature: 0.7 })
+      });
+      if (response.ok) {
+        const data = await response.json();
+        return data.choices?.[0]?.message?.content || '';
+      }
+      const body = await response.text();
+      if (response.status === 429 && attempt < 3) {
+        const m = body.match(/"retry_after_seconds":(\d+)/);
+        const wait = m ? (parseInt(m[1], 10) || 5) : Math.pow(2, attempt) * 5;
+        if (wait > upstreamRetryAfter) upstreamRetryAfter = wait;
+        await new Promise(r => setTimeout(r, wait * 1000));
+        continue;
+      }
+      throw new Error(`OpenRouter API HTTP Error [${response.status}]: ${body}`);
     }
-    const data = await response.json();
-    return data.choices?.[0]?.message?.content || '';
+    throw new Error(`OpenRouter API Error: upstream rate-limited for ${upstreamRetryAfter}s`);
   }
   throw new Error(`Unsupported AI provider: ${provider}`);
 }
