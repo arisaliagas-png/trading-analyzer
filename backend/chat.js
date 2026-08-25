@@ -75,6 +75,6 @@ INSTRUCTIONS:
 - If data is missing, say so explicitly; do not invent values.
 - Be concise and actionable (Greek preferred if user writes Greek).`;
 
-  const response = await askAI(prompt);
+  const response = await askAI(prompt, [{ role: 'user', content: userMessage }], 'openrouter');
   return response;
 }
