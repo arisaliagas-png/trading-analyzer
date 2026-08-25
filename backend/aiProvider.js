@@ -388,9 +388,11 @@ export async function askAI(systemPrompt, messages, forceProvider = null) {
       content: m.content
     }))];
     let upstreamRetryAfter = 0;
+    const attempted = new Set();
     for (let modelIdx = 0; modelIdx < candidates.length; modelIdx++) {
       const model = candidates[modelIdx];
-      for (let attempt = 0; attempt < 4; attempt++) {
+      attempted.add(model);
+      for (let attempt = 0; attempt < 2; attempt++) {
         const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
           method: 'POST',
           headers: {
@@ -406,20 +408,18 @@ export async function askAI(systemPrompt, messages, forceProvider = null) {
           return data.choices?.[0]?.message?.content || '';
         }
         const body = await response.text();
-        if (response.status === 429 && attempt < 3) {
+        if (response.status === 429 && attempt === 0) {
           const m = body.match(/"retry_after_seconds":(\d+)/);
-          const wait = m ? (parseInt(m[1], 10) || 5) : Math.pow(2, attempt) * 5;
+          const wait = m ? (parseInt(m[1], 10) || 5) : 5;
           if (wait > upstreamRetryAfter) upstreamRetryAfter = wait;
           await new Promise(r => setTimeout(r, wait * 1000));
           continue;
         }
-        if (response.status === 404 && modelIdx < candidates.length - 1) {
-          break;
-        }
-        throw new Error(`OpenRouter API HTTP Error [${response.status}] ${model}: ${body}`);
+        break;
       }
     }
-    throw new Error(`OpenRouter API Error: all models exhausted after ${upstreamRetryAfter}s`);
+    const tried = [...attempted].join(', ');
+    throw new Error(`OpenRouter API Error: free models exhausted (${tried}) after ${upstreamRetryAfter}s`);
   }
   throw new Error(`Unsupported AI provider: ${provider}`);
 }
