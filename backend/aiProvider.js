@@ -372,6 +372,31 @@ export async function askAI(systemPrompt, messages, forceProvider = null) {
     }
     const data = await response.json();
     return data.candidates?.[0]?.content?.parts?.[0]?.text || '';
+  } else if (provider === 'openrouter') {
+    const apiKey = process.env.OPENROUTER_API_KEY;
+    if (!apiKey) throw new Error('OPENROUTER_API_KEY is not configured.');
+    // OpenAI-compatible chat completions. Free models available (see OPENROUTER_MODEL).
+    const model = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.1-70b-instruct:free';
+    const oaMessages = [{ role: 'system', content: systemPrompt }, ...messages.map(m => ({
+      role: m.role === 'assistant' ? 'assistant' : 'user',
+      content: m.content
+    }))];
+    const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+      method: 'POST',
+      headers: {
+        'Content-Type': 'application/json',
+        'Authorization': `Bearer ${apiKey}`,
+        'HTTP-Referer': 'https://trading-analyzer-affqwq.fly.dev',
+        'X-Title': 'ARIS Trading Analyzer'
+      },
+      body: JSON.stringify({ model, messages: oaMessages, max_tokens: 2000, temperature: 0.7 })
+    });
+    if (!response.ok) {
+      const e = await response.text();
+      throw new Error(`OpenRouter API HTTP Error [${response.status}]: ${e}`);
+    }
+    const data = await response.json();
+    return data.choices?.[0]?.message?.content || '';
   }
   throw new Error(`Unsupported AI provider: ${provider}`);
 }
