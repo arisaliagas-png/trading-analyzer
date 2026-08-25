@@ -376,38 +376,50 @@ export async function askAI(systemPrompt, messages, forceProvider = null) {
     const apiKey = process.env.OPENROUTER_API_KEY;
     if (!apiKey) throw new Error('OPENROUTER_API_KEY is not configured.');
     // OpenAI-compatible chat completions. Free models available (see OPENROUTER_MODEL).
-    const model = process.env.OPENROUTER_MODEL || 'meta-llama/llama-3.1-70b-instruct:free';
+    const FREE_FALLBACKS = [
+      'google/gemma-4-31b-it:free',
+      'nvidia/nemotron-3.5-lightning:free',
+      'z-ai/glm-5.2:free'
+    ];
+    const configured = process.env.OPENROUTER_MODEL;
+    const candidates = [configured, ...FREE_FALLBACKS].filter(Boolean);
     const oaMessages = [{ role: 'system', content: systemPrompt }, ...messages.map(m => ({
       role: m.role === 'assistant' ? 'assistant' : 'user',
       content: m.content
     }))];
     let upstreamRetryAfter = 0;
-    for (let attempt = 0; attempt < 4; attempt++) {
-      const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
-        method: 'POST',
-        headers: {
-          'Content-Type': 'application/json',
-          'Authorization': `Bearer ${apiKey}`,
-          'HTTP-Referer': 'https://trading-analyzer-affqwq.fly.dev',
-          'X-Title': 'ARIS Trading Analyzer'
-        },
-        body: JSON.stringify({ model, messages: oaMessages, max_tokens: 2000, temperature: 0.7 })
-      });
-      if (response.ok) {
-        const data = await response.json();
-        return data.choices?.[0]?.message?.content || '';
+    for (let modelIdx = 0; modelIdx < candidates.length; modelIdx++) {
+      const model = candidates[modelIdx];
+      for (let attempt = 0; attempt < 4; attempt++) {
+        const response = await fetch('https://openrouter.ai/api/v1/chat/completions', {
+          method: 'POST',
+          headers: {
+            'Content-Type': 'application/json',
+            'Authorization': `Bearer ${apiKey}`,
+            'HTTP-Referer': 'https://trading-analyzer-affqwq.fly.dev',
+            'X-Title': 'ARIS Trading Analyzer'
+          },
+          body: JSON.stringify({ model, messages: oaMessages, max_tokens: 2000, temperature: 0.7 })
+        });
+        if (response.ok) {
+          const data = await response.json();
+          return data.choices?.[0]?.message?.content || '';
+        }
+        const body = await response.text();
+        if (response.status === 429 && attempt < 3) {
+          const m = body.match(/"retry_after_seconds":(\d+)/);
+          const wait = m ? (parseInt(m[1], 10) || 5) : Math.pow(2, attempt) * 5;
+          if (wait > upstreamRetryAfter) upstreamRetryAfter = wait;
+          await new Promise(r => setTimeout(r, wait * 1000));
+          continue;
+        }
+        if (response.status === 404 && modelIdx < candidates.length - 1) {
+          break;
+        }
+        throw new Error(`OpenRouter API HTTP Error [${response.status}] ${model}: ${body}`);
       }
-      const body = await response.text();
-      if (response.status === 429 && attempt < 3) {
-        const m = body.match(/"retry_after_seconds":(\d+)/);
-        const wait = m ? (parseInt(m[1], 10) || 5) : Math.pow(2, attempt) * 5;
-        if (wait > upstreamRetryAfter) upstreamRetryAfter = wait;
-        await new Promise(r => setTimeout(r, wait * 1000));
-        continue;
-      }
-      throw new Error(`OpenRouter API HTTP Error [${response.status}]: ${body}`);
     }
-    throw new Error(`OpenRouter API Error: upstream rate-limited for ${upstreamRetryAfter}s`);
+    throw new Error(`OpenRouter API Error: all models exhausted after ${upstreamRetryAfter}s`);
   }
   throw new Error(`Unsupported AI provider: ${provider}`);
 }
