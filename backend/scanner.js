@@ -779,10 +779,11 @@ export async function getActiveSignals() {
     };
   });
 
-  // Schedule isNew flag clear (60s delay so the 30s frontend poll sees it at least once)
+  // Schedule isNew flag clear (300s delay so the user has time to SEE the NEW
+  // badge even if they screenshot a minute or two after the scan finishes).
   enriched
     .filter(t => t.isNew)
-    .forEach(t => setTimeout(async () => { await clearIsNew(t.id); }, 60000));
+    .forEach(t => setTimeout(async () => { await clearIsNew(t.id); }, 300000));
 
   return enriched;
 }
