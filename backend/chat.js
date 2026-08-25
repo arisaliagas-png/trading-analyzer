@@ -4,7 +4,7 @@
 // post-mortem lessons, and system rules ("Πρώτος Νόμος").
 // ─────────────────────────────────────────────
 import { askAI } from './aiProvider.js';
-import { getActiveSignals } from './scanner.js';
+import { getActiveSignals, getDirectionalEdge } from './scanner.js';
 import { getCapitalFlow } from './capitalFlow.js';
 import { getAllLessons, getActiveTrades } from './db.js';
 
@@ -19,10 +19,11 @@ async function fetchLivePrices(symbols) {
 }
 
 async function buildContext() {
-  const [signals, trades, lessons] = await Promise.all([
+  const [signals, trades, lessons, directionalEdge] = await Promise.all([
     getActiveSignals(),
     getActiveTrades(),
     getAllLessons().then(l => l.slice(-8)),
+    getDirectionalEdge().catch(() => ({})),
   ]);
 
   // ── Signals with enriched metadata ──
@@ -73,6 +74,18 @@ async function buildContext() {
     ? lessons.map(l => `- ${l.instrument} ${l.direction || ''}: ${l.failure_reason || ''} → ${l.lesson || ''}`).join('\n')
     : '(none)';
 
+  // ── Directional edge (historical win rate by direction) ──
+  const edgeLines = directionalEdge && typeof directionalEdge === 'object'
+    ? Object.entries(directionalEdge).map(([dir, stats]) => {
+        const wins = stats.wins || 0;
+        const losses = stats.losses || 0;
+        const total = wins + losses;
+        const wr = total ? ((wins / total) * 100).toFixed(0) : '?';
+        return `- ${dir}: ${wins}W / ${losses}L (${wr}% WR)`;
+      }).join('
+')
+    : '(unavailable)';
+
   // ── System rules ("Πρώτος Νόμος") ──
   const rules = `SYSTEM RULES (Πρώτος Νόμος):
 - Ποτέ μην κυνηγάς το κερι. Wait for the zone (SMC/OTE) με το ΓΙΑΤΙ.
@@ -83,7 +96,12 @@ async function buildContext() {
 - Board correlation risk: αν 5/7 setups είναι ίδια κατεύθυνση, μεγέθυνε προσοχή.
 - Flow downgrade: BUY_INTO_SELLING / SELL_INTO_BUYING → PENDING.`;
 
-  return `=== SCANNER SIGNALS ===\n${sigLines}\n\n=== ACTIVE TRADES (live PnL) ===\n${tradeLines}\n\n=== CAPITAL FLOW ===\n${flowLines}\n\n=== RECENT LESSONS ===\n${lessonLines}\n\n${rules}`;
+  return `=== SCANNER SIGNALS ===
+${sigLines}\n\n=== ACTIVE TRADES (live PnL) ===
+${tradeLines}\n\n=== CAPITAL FLOW ===
+${flowLines}\n\n=== RECENT LESSONS ===
+${lessonLines}\n\n=== DIRECTIONAL EDGE (historical) ===
+${edgeLines}\n\n${rules}`;
 }
 
 const ROLE = `You are the ARIS Crypto Coach — an experienced, direct crypto analyst embedded inside the user's "AI Trading Analyzer" (ARIS Quantum v6 strategy: SMC/ICT concepts, OTE zones, R-multiple, squeeze-phase hard gate, directional-edge gate).
