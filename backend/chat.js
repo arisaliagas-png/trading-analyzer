@@ -42,10 +42,8 @@ export async function buildContext() {
   ].join('\n');
 
   const edgeLines = [
-    `Long:  ${edgeData.longWR != null ? edgeData.longWR + '% WR' : 'n/a'} | ${edgeData.longRR != null ? edgeData.longRR + ':1 avg R:R' : 'n/a'} | trades=${edgeData.longTrades ?? '?'}`,
-    `Short: ${edgeData.shortWR != null ? edgeData.shortWR + '% WR' : 'n/a'} | ${edgeData.shortRR != null ? edgeData.shortRR + ':1 avg R:R' : 'n/a'} | trades=${edgeData.shortTrades ?? '?'}`,
-    `Common LONG failure: ${edgeData.longFailReason || 'n/a'}`,
-    `Common SHORT failure: ${edgeData.shortFailReason || 'n/a'}`
+    `Long:  ${edgeData.LONG ? (edgeData.LONG.winRate != null ? edgeData.LONG.winRate + '% WR' : 'n/a') : 'n/a'} | trades=${edgeData.LONG ? edgeData.LONG.total ?? '?' : '?'}`,
+    `Short: ${edgeData.SHORT ? (edgeData.SHORT.winRate != null ? edgeData.SHORT.winRate + '% WR' : 'n/a') : 'n/a'} | trades=${edgeData.SHORT ? edgeData.SHORT.total ?? '?' : '?'}`
   ].join('\n');
 
   return `=== SCANNER SIGNALS ===
