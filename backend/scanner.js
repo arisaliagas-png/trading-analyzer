@@ -166,7 +166,8 @@ import {
 // ─────────────────────────────────────────────
 const ASSETS_TO_SCAN = [
   'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
-  'ADAUSDT', 'LINKUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'LTCUSDT'
+  'ADAUSDT', 'LINKUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'LTCUSDT',
+  'SUIUSDT', 'SEIUSDT', 'NEARUSDT', 'FETUSDT', 'HBARUSDT'
 ];
 
 const SCAN_TIMEFRAME = '1h';
