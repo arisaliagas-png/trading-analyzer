@@ -5,7 +5,6 @@ import { askAI } from './aiProvider.js';
 import { getActiveSignals } from './scanner.js';
 import { getActiveTrades } from './tradeTracker.js';
 import { getCapitalFlow } from './capitalFlow.js';
-import { getLessons } from './lessons.js';
 import { getDirectionalEdge } from './dbSupabase.js';
 
 // ── System Philosophy (Prótos Nómos) ──────────
@@ -18,11 +17,10 @@ const RULES = `SYSTEM PHILOSOPHY — «Πρώτος Νόμος»:
 - Lessons > opinions: ό,τι έγινε στο παρελθόν (SL hit / win) επαναλαμβάνεται.`;
 
 export async function buildContext() {
-  const [signals, trades, flow, lessons, edgeData] = await Promise.all([
+  const [signals, trades, flow, edgeData] = await Promise.all([
     getActiveSignals().catch(() => []),
     getActiveTrades().catch(() => []),
     getCapitalFlow().catch(() => ({ regimes: [], pairs: [] })),
-    getLessons().catch(() => []),
     getDirectionalEdge().catch(() => ({}))
   ]);
 
@@ -43,8 +41,6 @@ export async function buildContext() {
     `ΔOI1h / CVD: ${(flow.pairs || []).map(p => `${p.symbol} ΔOI=${p.doi1h ?? 'n/a'} CVD=${p.cvd ?? 'n/a'}`).join(', ') || 'n/a'}`
   ].join('\n');
 
-  const lessonLines = (lessons || []).slice(0, 5).map(l => `- [${l.symbol} ${l.direction}] ${l.lesson}: ${l.trigger || ''}`).join('\n') || '(none)';
-
   const edgeLines = [
     `Long:  ${edgeData.longWR != null ? edgeData.longWR + '% WR' : 'n/a'} | ${edgeData.longRR != null ? edgeData.longRR + ':1 avg R:R' : 'n/a'} | trades=${edgeData.longTrades ?? '?'}`,
     `Short: ${edgeData.shortWR != null ? edgeData.shortWR + '% WR' : 'n/a'} | ${edgeData.shortRR != null ? edgeData.shortRR + ':1 avg R:R' : 'n/a'} | trades=${edgeData.shortTrades ?? '?'}`,
@@ -60,9 +56,6 @@ ${tradeLines}
 
 === CAPITAL FLOW ===
 ${flowLines}
-
-=== RECENT LESSONS ===
-${lessonLines}
 
 === DIRECTIONAL EDGE (historical) ===
 ${edgeLines}
