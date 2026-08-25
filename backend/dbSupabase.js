@@ -11,6 +11,7 @@ import { dbLog } from './logger.js';
 
 const SUPABASE_URL = process.env.SUPABASE_URL;
 const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
 
 // Lazily create the client (dotenv loads after imports; package import is
 // deferred so sqlite-only deployments don't need @supabase/supabase-js installed).
@@ -21,7 +22,11 @@ async function client() {
       throw new Error('SUPABASE_URL and SUPABASE_ANON_KEY must be set for Supabase mode');
     }
     const { createClient } = await import('@supabase/supabase-js');
-    _client = createClient(SUPABASE_URL, SUPABASE_ANON_KEY, {
+    // Prefer service_role key (server-only, bypasses RLS). Falls back to anon
+    // key for local/dev where RLS is not enforced. The anon key is public and
+    // must NEVER be used from the server once RLS is enabled on the tables.
+    const key = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
+    _client = createClient(SUPABASE_URL, key, {
       auth: { persistSession: false }
     });
   }
