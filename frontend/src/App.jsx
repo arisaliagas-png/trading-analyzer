@@ -269,6 +269,7 @@ export default function App() {
   const [U, setUHeatmap] = useState(null);
   const [Ha, setHaConnected] = useState(false);
   const [dn, setDnSignals] = useState([]);
+  const alertedIds = useRef(new Set());
   const [Ga, setGaLastScan] = useState(null);
   const [Bt, setBtScannerState] = useState({ isScanning: false, lastScanAt: null });
   const [Ka, setKaElapsed] = useState(0);
@@ -367,8 +368,12 @@ export default function App() {
       if (res.ok) {
         const data = await res.json();
         if (data.signals) {
-          const hasNew = data.signals.some(s => s.is_new === 1 || s.isNew);
-          if (hasNew) playAlert();
+          const newIds = data.signals.filter(s => (s.is_new === 1 || s.isNew)).map(s => s.id);
+          const unseen = newIds.filter(id => !alertedIds.current.has(id));
+          if (unseen.length) {
+            unseen.forEach(id => alertedIds.current.add(id));
+            playAlert();
+          }
           setDnSignals(data.signals);
         }
       }
