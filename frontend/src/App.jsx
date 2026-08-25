@@ -1298,6 +1298,12 @@ export default function App() {
                   ? ((Number(lastPrice) - Number(entryPrice)) / Number(entryPrice)) * 100 * (card.direction === 'SHORT' ? -1 : 1)
                   : null;
 
+                const liveRMultiple = (lastPrice && entryPrice && sl && Number(entryPrice) > 0 && Number(sl) > 0)
+                  ? (card.direction === 'SHORT'
+                    ? (Number(entryPrice) - Number(lastPrice)) / (Number(entryPrice) - Number(sl))
+                    : (Number(lastPrice) - Number(entryPrice)) / (Number(entryPrice) - Number(sl)))
+                  : null;
+
                 const indicatorText = Array.isArray(card.indicators) && card.indicators.length > 0
                   ? card.indicators.join('\n')
                   : Array.isArray(card.indicatorSnapshot) && card.indicatorSnapshot.length > 0
@@ -1348,15 +1354,11 @@ export default function App() {
                           </span>
                         )}
                       </div>
-                      {card.rMultiple != null ? (
-                        <span style={{ color: card.rMultiple >= 0 ? '#10b981' : '#ef4444', fontWeight: 700, fontSize: '0.88rem' }}>
-                          {card.rMultiple >= 0 ? '+' : ''}{card.rMultiple}R
-                        </span>
-                      ) : (
-                        <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>
-                          Grade: <strong style={{ color: '#a78bfa' }}>{card.confidenceGrade || card.grade || 'C'}</strong>
-                        </span>
-                      )}
+                      {(() => {
+                        const r = card.status === 'ACTIVE' ? liveRMultiple : card.rMultiple;
+                        if (r == null) return <span style={{ fontSize: '0.78rem', color: '#94a3b8' }}>Grade: <strong style={{ color: '#a78bfa' }}>{card.confidenceGrade || card.grade || 'C'}</strong></span>;
+                        return <span style={{ color: r >= 0 ? '#10b981' : '#ef4444', fontWeight: 700, fontSize: '0.88rem' }}>{r >= 0 ? '+' : ''}{r.toFixed(2)}R</span>;
+                      })()}
                     </div>
 
                     <div className="h-levels-box">
