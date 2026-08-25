@@ -70,7 +70,7 @@ ${edgeLines}
 ${RULES}`;
 }
 
-export async function chat(userMessage) {
+export async function chatWithAI(userMessage, history = []) {
   const ctx = await buildContext();
   const prompt = `${ctx}
 
@@ -83,5 +83,5 @@ INSTRUCTIONS:
 - Be concise and actionable (Greek preferred if user writes Greek).`;
 
   const response = await askAI(prompt);
-  return { reply: response, context: ctx };
+  return response;
 }
