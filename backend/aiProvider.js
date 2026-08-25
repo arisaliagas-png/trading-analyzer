@@ -531,6 +531,10 @@ async function callAI(systemPrompt, userContent, mimeType = null, imageBuffer = 
 
 // --- Primary analysis ---
 export async function analyzeChart(imageBuffer, mimeType, pair = '', timeframe = '', hints = '', orderbookContext = null, indicatorContext = null, newsContext = null, forceProvider = null) {
+  // Analyzer always uses a vision-capable provider (Gemini/Anthropic).
+  // OpenRouter free models do not support image inputs.
+  const provider = (forceProvider === 'openrouter') ? null : (forceProvider || process.env.AI_PROVIDER || 'gemini');
+  const actualProvider = provider === 'openrouter' ? null : provider;
   const tfInstruction = timeframe
     ? `IMPORTANT: The user has confirmed the timeframe is "${timeframe}". Use this exact timeframe — do NOT override it.`
     : `Auto-detect the timeframe from the chart's UI (look for the timeframe button/label in the top-left of the chart).`;
@@ -694,7 +698,7 @@ Follow system instructions and output the JSON result.
   console.log(userPrompt);
   console.log('=== END PROMPT ===');
 
-  return callAI(systemInstructionsWithLessons, userPrompt, mimeType, imageBuffer, forceProvider, hints || 'ANALYSIS');
+  return callAI(systemInstructionsWithLessons, userPrompt, mimeType, imageBuffer, actualProvider, hints || 'ANALYSIS');
 }
 
 
