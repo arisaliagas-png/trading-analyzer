@@ -3,7 +3,7 @@
 // ─────────────────────────────────────────────
 import { askAI } from './aiProvider.js';
 import { getActiveSignals } from './scanner.js';
-import { getActiveTrades } from './tradeTracker.js';
+import { getActiveTrades } from './dbSupabase.js';
 import { getCapitalFlow } from './capitalFlow.js';
 import { getDirectionalEdge } from './dbSupabase.js';
 
