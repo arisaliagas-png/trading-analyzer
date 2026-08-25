@@ -73,7 +73,7 @@ INSTRUCTIONS:
 - Answer strictly based on the data above.
 - Apply the «Πρώτος Νόμος»: never chase the candle, wait for the zone.
 - If data is missing, say so explicitly; do not invent values.
-- Be concise and actionable (Greek preferred if user writes Greek).`;
+- Be concise and actionable (Greek preferred if user writes Greek). Do NOT output any reasoning/thinking — output the final answer only.`;
 
   const response = await askAI(prompt, [{ role: 'user', content: userMessage }], 'openrouter');
   return response;
