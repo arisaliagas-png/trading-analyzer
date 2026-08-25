@@ -738,8 +738,14 @@ function calculateExecutionSetup({
       const sl = smTrap.type === 'BEAR_TRAP' && smTrap.low != null
         ? smTrap.low - 0.5 * atr
         : Math.min(swingLow, absorption.price - 0.75 * atr);
-      const tp1 = swingHigh;
-      const tp2 = swingHigh + range * 0.618;
+      // TP1 defaults to the structural swing high, BUT enforce a minimum 1.5:1 R:R:
+      // if swingHigh is closer than 1.5x the SL risk, extend TP1 to idealPrice + 1.5*risk.
+      const riskDist = Math.abs(idealPrice - sl);
+      const tp1Raw = swingHigh;
+      const tp1 = (tp1Raw - idealPrice) >= (1.5 * riskDist)
+        ? tp1Raw
+        : idealPrice + 1.5 * riskDist;
+      const tp2 = Math.max(swingHigh + range * 0.618, idealPrice + 3.0 * riskDist);
       return {
         strategy: 'ALCHEMIC_REACTION',
         direction: 'LONG',
@@ -758,8 +764,13 @@ function calculateExecutionSetup({
       const sl = smTrap.type === 'BULL_TRAP' && smTrap.high != null
         ? smTrap.high + 0.5 * atr
         : Math.max(swingHigh, absorption.price + 0.75 * atr);
-      const tp1 = swingLow;
-      const tp2 = swingLow - range * 0.618;
+      // TP1 defaults to the structural swing low, BUT enforce a minimum 1.5:1 R:R.
+      const riskDist = Math.abs(idealPrice - sl);
+      const tp1Raw = swingLow;
+      const tp1 = (idealPrice - tp1Raw) >= (1.5 * riskDist)
+        ? tp1Raw
+        : idealPrice - 1.5 * riskDist;
+      const tp2 = Math.min(swingLow - range * 0.618, idealPrice - 3.0 * riskDist);
       return {
         strategy: 'ALCHEMIC_REACTION',
         direction: 'SHORT',
@@ -810,17 +821,21 @@ function calculateExecutionSetup({
         const idealPrice = closestWall.price + tick;
         const entry = formatZone(idealPrice, closestWall.price, idealPrice + 0.5 * atr);
         const sl = closestWall.price - tick * 4; // stop loss protected below wall
-        const tp1 = swingHigh;
-        const tp2 = swingHigh + range * 0.618;
+        const riskDist = idealPrice - sl;
+        const tp1Raw = swingHigh;
+        const tp1 = (tp1Raw - idealPrice) >= (1.5 * riskDist) ? tp1Raw : idealPrice + 1.5 * riskDist;
+        const tp2 = Math.max(swingHigh + range * 0.618, idealPrice + 3.0 * riskDist);
         return { strategy: 'LIQUIDITY_SHIELD', direction: 'LONG', entry, sl, tp1, tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Bid Wall at $${f(closestWall.price)})` };
       } else if (closestWall.side === 'ask' && !isUpward) {
         // Sell resistance shield (Short)
         const idealPrice = closestWall.price - tick;
         const entry = formatZone(idealPrice, idealPrice - 0.5 * atr, closestWall.price);
         const sl = closestWall.price + tick * 4;
-        const tp1 = swingLow;
-        const tp2 = swingLow - range * 0.618;
-        return { strategy: 'LIQUIDITY_SHIELD', direction: 'SHORT', entry, sl, tp1, tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Ask Wall at $${f(closestWall.price)})` };
+        const riskDist = sl - idealPrice;
+        const tp1Raw = swingLow;
+        const tp1 = (idealPrice - tp1Raw) >= (1.5 * riskDist) ? tp1Raw : idealPrice - 1.5 * riskDist;
+        const tp2 = Math.min(swingLow - range * 0.618, idealPrice - 3.0 * riskDist);
+        return { strategy: 'LIQUIDITY SHIELD', direction: 'SHORT', entry, sl, tp1, tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Ask Wall at $${f(closestWall.price)})` };
       }
     }
   }
