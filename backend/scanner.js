@@ -299,7 +299,7 @@ ENGINE SNAPSHOT:
 - Computed Entry Zone: $${f(ote.entry?.low)} - $${f(ote.entry?.high)} (Ideal: $${f(ote.entry?.price)})
 - Computed SL: $${f(ote.sl)}
 - Computed TP1/2: TP1=$${f(ote.tp1)} | TP2=$${f(ote.tp2)}
-- SM Trap: ${engine.smTrap ?? 'NONE'}
+- SM Trap: ${engine.smTrap?.type ?? 'NONE'}
 - CVD Bias: ${engine.cvdBias} | UFO: ${engine.ufoScore?.toFixed(0)}%
 - Squeeze: ${engine.squeeze?.state} / ${engine.squeeze?.direction}
 - Whale Absorption: ${engine.whaleAbsorption?.signal ?? 'NONE'}

@@ -272,7 +272,7 @@ function computeChoppiness(highs, lows, closes, period = 14) {
 
 function detectSMTrap(opens, highs, lows, closes, structHigh, structLow) {
   const n = closes.length;
-  if (n < 20 || !structHigh || !structLow) return 'NONE';
+  if (n < 20 || !structHigh || !structLow) return { type: 'NONE', low: null, high: null };
 
   // Check the last 15 bars for structural sweeps of the macro swings
   for (let idx = n - 1; idx >= n - 15; idx--) {
@@ -282,7 +282,8 @@ function detectSMTrap(opens, highs, lows, closes, structHigh, structLow) {
     const h = highs[idx];
     const l = lows[idx];
 
-    // Bear trap (sweep of structural swing low): candle goes below structLow, closes back above
+    // Bear trap (sweep of structural swing low): candle goes below structLow, closes back above.
+    // The sweep LOW is the real liquidity grab — the stop should sit BELOW it, not below structLow.
     const isBearTrap = l < structLow && c > structLow && c > o;
     if (isBearTrap) {
       // Invalidation: if any subsequent low went below this candle's low, it's invalid
@@ -291,10 +292,11 @@ function detectSMTrap(opens, highs, lows, closes, structHigh, structLow) {
       for (let j = idx + 1; j < n; j++) {
         if (lows[j] < trapLow) { breached = true; break; }
       }
-      if (!breached) return 'BEAR_TRAP';
+      if (!breached) return { type: 'BEAR_TRAP', low: trapLow, high: null };
     }
 
-    // Bull trap (sweep of structural swing high): candle goes above structHigh, closes back below
+    // Bull trap (sweep of structural swing high): candle goes above structHigh, closes back below.
+    // The sweep HIGH is the real liquidity grab — the stop should sit ABOVE it, not above structHigh.
     const isBullTrap = h > structHigh && c < structHigh && c < o;
     if (isBullTrap) {
       const trapHigh = h;
@@ -302,11 +304,11 @@ function detectSMTrap(opens, highs, lows, closes, structHigh, structLow) {
       for (let j = idx + 1; j < n; j++) {
         if (highs[j] > trapHigh) { breached = true; break; }
       }
-      if (!breached) return 'BULL_TRAP';
+      if (!breached) return { type: 'BULL_TRAP', low: null, high: trapHigh };
     }
   }
 
-  return 'NONE';
+  return { type: 'NONE', low: null, high: null };
 }
 
 // ─── Benford's Law Check ─────────────────────────────────────────────────────
@@ -666,7 +668,7 @@ function detectOrderBlock(opens, highs, lows, closes, lookback = 20) {
 
 function calculateExecutionSetup({
   swingHigh, swingLow, swingHighIndex = null, swingLowIndex = null, currentPrice, highs, lows, opens, closes,
-  regime, squeezeState, cvdBias, whaleWalls = [], absorption = null, smTrap = null, forceDirection = null
+  regime, squeezeState, cvdBias, whaleWalls = [], absorption = null, smTrap = { type: 'NONE', low: null, high: null }, forceDirection = null
 }) {
   if (swingHigh <= swingLow) return null;
 
@@ -681,9 +683,9 @@ function calculateExecutionSetup({
     isUpward = true;
   } else if (forceDirection === 'SHORT') {
     isUpward = false;
-  } else if (smTrap === 'BEAR_TRAP') {
+  } else if (smTrap.type === 'BEAR_TRAP') {
     isUpward = true;
-  } else if (smTrap === 'BULL_TRAP') {
+  } else if (smTrap.type === 'BULL_TRAP') {
     isUpward = false;
   } else if (swingHighIndex != null && swingLowIndex != null) {
     isUpward = swingHighIndex > swingLowIndex; // most-recent swing is the high -> uptrend pullback -> LONG
@@ -730,7 +732,12 @@ function calculateExecutionSetup({
       // Passive whale buyers absorbing market sellers (Bullish Reversal Setup)
       const idealPrice = absorption.price + tickOffset;
       const entry = formatZone(idealPrice, idealPrice - 0.5 * atr, idealPrice + 0.5 * atr);
-      const sl = Math.min(swingLow, absorption.price - 0.75 * atr); // Tight stop protected by absorption block
+      // SL below the liquidity sweep low (smTrap.low) when a BEAR_TRAP swept structure,
+      // otherwise just below the swing low. This keeps the stop out of the pile of
+      // stops that sit under the obvious low (the liquidity grab target).
+      const sl = smTrap.type === 'BEAR_TRAP' && smTrap.low != null
+        ? smTrap.low - 0.5 * atr
+        : Math.min(swingLow, absorption.price - 0.75 * atr);
       const tp1 = swingHigh;
       const tp2 = swingHigh + range * 0.618;
       return {
@@ -746,7 +753,11 @@ function calculateExecutionSetup({
       // Passive whale sellers absorbing market buyers (Bearish Reversal Setup)
       const idealPrice = absorption.price - tickOffset;
       const entry = formatZone(idealPrice, idealPrice - 0.5 * atr, idealPrice + 0.5 * atr);
-      const sl = Math.max(swingHigh, absorption.price + 0.75 * atr);
+      // SL above the liquidity sweep high (smTrap.high) when a BULL_TRAP swept structure,
+      // otherwise just above the swing high.
+      const sl = smTrap.type === 'BULL_TRAP' && smTrap.high != null
+        ? smTrap.high + 0.5 * atr
+        : Math.max(swingHigh, absorption.price + 0.75 * atr);
       const tp1 = swingLow;
       const tp2 = swingLow - range * 0.618;
       return {
@@ -948,7 +959,7 @@ function computeUFScore({ rsiLast, wt1Last, wt2Last, hybridLast, stochKLast, mfi
   const c10 = adxVal != null ? (adxVal > 20 ? 1 : 0) : null;           // ADX Trending
   const c11 = chop != null ? (chop < 61.8 ? 1 : 0) : null;             // Not Choppy
   const c12 = zScore != null ? (Math.abs(zScore) < 2 ? 1 : 0) : null;  // Z-Score in range
-  const c13 = smTrap === 'NONE' ? 1 : 0;                                // No SM Trap
+  const c13 = smTrap.type === 'NONE' ? 1 : 0;                                // No SM Trap
   const c14 = oteRetest ? 1 : 0;                                       // Price in OTE zone
 
   const conditions = [c1, c2, c3, c4, c5, c6, c7, c8, c9, c10, c11, c12, c13, c14];
@@ -1032,7 +1043,7 @@ function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfi
     chop != null && chop < 61.8 ? 1 : 0,
 
     // SM Trap penalty (–1 if BEAR_TRAP active during long consideration)
-    smTrap === 'BEAR_TRAP' ? 0 : 1,
+    smTrap.type === 'BEAR_TRAP' ? 0 : 1,
 
     // Benford (1 pt — clean volume distribution)
     benfordOk ? 1 : 0,
@@ -1078,7 +1089,7 @@ function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfi
     relVol != null && relVol.signal !== 'LOW' ? 1 : 0,
     adxVal != null && adxVal > 20 ? 1 : 0,
     chop != null && chop < 61.8 ? 1 : 0,
-    smTrap === 'BULL_TRAP' ? 0 : 1,
+    smTrap.type === 'BULL_TRAP' ? 0 : 1,
     benfordOk ? 1 : 0,
     ufoNorm <= -66 ? 1 : 0,
     ufoNorm === -100 ? 1 : 0,
