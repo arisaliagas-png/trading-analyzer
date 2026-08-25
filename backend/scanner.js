@@ -779,10 +779,10 @@ export async function getActiveSignals() {
     };
   });
 
-  // Schedule isNew flag clear (5s delay so frontend sees it once)
+  // Schedule isNew flag clear (60s delay so the 30s frontend poll sees it at least once)
   enriched
     .filter(t => t.isNew)
-    .forEach(t => setTimeout(async () => { await clearIsNew(t.id); }, 5000));
+    .forEach(t => setTimeout(async () => { await clearIsNew(t.id); }, 60000));
 
   return enriched;
 }

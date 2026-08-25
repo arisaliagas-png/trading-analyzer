@@ -101,11 +101,12 @@ export async function registerTrade(setup) {
   }, { onConflict: 'id' });
   if (error) dbLog.error({ err: error.message }, 'Supabase registerTrade failed');
   else {
-    // Ensure grade/pct are persisted — upsert sometimes drops them on conflict
+    // Ensure grade/pct + is_new are persisted — upsert sometimes drops them on conflict,
+    // and we MUST re-flag is_new=1 on every (re)registration so the frontend shows NEW.
     const { error: gErr } = await (await client()).from('trades')
-      .update({ grade: setup.grade ?? null, confidence_pct: setup.pct ?? null })
+      .update({ grade: setup.grade ?? null, confidence_pct: setup.pct ?? null, is_new: 1 })
       .eq('id', setup.id);
-    if (gErr) dbLog.error({ err: gErr.message }, 'Supabase grade update failed');
+    if (gErr) dbLog.error({ err: gErr.message }, 'Supabase grade/is_new update failed');
     dbLog.info({ id: setup.id, instrument: setup.instrument, direction }, 'Trade registered (Supabase)');
   }
 }
@@ -120,7 +121,7 @@ export async function upsertSignal(signal) {
     const { error } = await (await client()).from('trades').update({
       id:          signal.id,
       status:      signal.status, grade: signal.grade, confidence_pct: signal.pct,
-      reasoning:   signal.reasoning, is_new: existing.is_new,
+      reasoning:   signal.reasoning, is_new: 1,
       sl: signal.sl ?? null, entry_low: signal.entry?.low ?? null, entry_high: signal.entry?.high ?? null,
       tp1: signal.targets?.[0] ?? null, tp2: signal.targets?.[1] ?? null,
       indicator_snapshot: JSON.stringify(signal.indicators || [])
