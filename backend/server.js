@@ -102,10 +102,19 @@ const aiLimiter = rateLimit({
   legacyHeaders: false,
   message: { error: '⚠️ Rate limit exceeded. Max 15 AI requests per minute.' }
 });
-// General API: max 60 requests per minute
+// General API: max 120 requests per minute (candles/prices polled frequently)
 const generalLimiter = rateLimit({
   windowMs: 60 * 1000,
-  max: 60,
+  max: 120,
+  standardHeaders: true,
+  legacyHeaders: false,
+  message: { error: '⚠️ Too many requests. Please slow down.' }
+});
+
+// Exclude high-frequency read endpoints (already cached + externally rate-limited)
+const generalLimiterSoft = rateLimit({
+  windowMs: 60 * 1000,
+  max: 300,
   standardHeaders: true,
   legacyHeaders: false,
   message: { error: '⚠️ Too many requests. Please slow down.' }
@@ -114,6 +123,8 @@ const generalLimiter = rateLimit({
 app.use('/api/analyze',        aiLimiter);
 app.use('/api/second-opinion', aiLimiter);
 app.use('/api/scanner/run',    aiLimiter);
+app.use('/api/candles',        generalLimiterSoft);
+app.use('/api/prices',         generalLimiterSoft);
 app.use('/api/',               generalLimiter);
 app.use(express.json());
 
