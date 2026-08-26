@@ -503,6 +503,27 @@ app.get('/api/history', async (req, res) => {
 });
 
 // ─────────────────────────────────────────────
+// CANDLES — OHLCV data for the frontend chart
+// ─────────────────────────────────────────────
+app.get('/api/candles', async (req, res) => {
+  try {
+    const { symbol = 'BTCUSDT', interval = '1h', limit = 250 } = req.query;
+    const binanceSymbol = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
+    const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${Math.min(Number(limit) || 250, 1000)}`;
+    const r = await fetch(url);
+    if (!r.ok) return res.status(502).json({ error: `Binance ${r.status}` });
+    const raw = await r.json();
+    const candles = raw.map(k => ({
+      time: Math.floor(k[0] / 1000),
+      open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: parseFloat(k[4]), volume: parseFloat(k[5])
+    }));
+    res.json({ symbol: binanceSymbol, interval, candles });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
 // LESSONS — AI post-mortem lessons from SQLite
 // ─────────────────────────────────────────────
 app.get('/api/lessons', async (req, res) => {

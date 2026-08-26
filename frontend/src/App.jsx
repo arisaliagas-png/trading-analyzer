@@ -1,4 +1,11 @@
 import React, { useState, useEffect, useRef } from 'react';
+import ChartTab from './ChartTab.jsx';
+
+const ASSETS_LIST = [
+  'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
+  'ADAUSDT', 'LINKUSDT', 'DOGEUSDT', 'AVAXUSDT', 'DOTUSDT', 'LTCUSDT',
+  'SUIUSDT', 'SEIUSDT', 'NEARUSDT', 'FETUSDT', 'HBARUSDT'
+];
 
 const TRANSLATIONS = {
   el: {
@@ -966,6 +973,7 @@ export default function App() {
       <nav className="tab-nav">
         {[
           { id: 'analyzer', label: t.analyzer },
+          { id: 'chart', label: '📈 Chart' },
           { id: 'history', label: `${t.history} (${totalTradesCount})` },
           { id: 'heatmap', label: t.heatmap },
           { id: 'capital', label: t.capital },
@@ -2028,6 +2036,22 @@ export default function App() {
             </div>
           )}
         </div>
+      )}
+
+      {l === 'chart' && (
+        <ChartTab
+          assets={ASSETS_LIST}
+          API_BASE={API_BASE}
+          signals={dn}
+          livePrices={livePrices}
+          onPrices={async (syms) => {
+            try {
+              const res = await fetch(`${API_BASE}/api/prices?symbols=${syms.join(',')}`);
+              const d = await res.json();
+              if (d.prices) setLivePrices(d.prices);
+            } catch {}
+          }}
+        />
       )}
 
       {l === 'analytics' && (
