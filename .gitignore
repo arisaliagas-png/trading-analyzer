@@ -37,3 +37,19 @@ trading-analyzer/
 # Editor
 .vscode/
 .idea/
+
+# Recon / scratch artifacts (scraped competitor pages, ad-hoc debug scripts)
+# — never commit these; they are local-only working files.
+pts_main.html
+pts_terminal.html
+run_scan.sh
+scan_symbols.js
+scanner_poll.py
+backend/chat.js.bak
+backend/debug_link.mjs
+backend/live_check3.js
+backend/live_pine_strict_scan.js
+backend/live_pine_strict_scan_run.mjs
+backend/pine_scan_run.mjs
+backend/pine_strict_scan_run.mjs
+backend/SCAN_RUN_*.md
