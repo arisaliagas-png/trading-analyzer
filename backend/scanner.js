@@ -350,7 +350,7 @@ Return ONLY valid JSON (no markdown, no extra text):
     // (e.g. schema mismatch swallowed upstream), fall back to the quant engine's
     // own computed grade so the UI never shows a blank "Grade %".
     const finalGrade = aiResult.confidenceGrade ?? engine.confidenceGrade ?? 'C';
-    const finalPct   = aiResult.confidencePct   ?? engine.confidencePct   ?? 50;
+    const finalPct   = Math.min(100, (aiResult.confidencePct ?? engine.confidencePct ?? 50) + obConfluence * 5);
 
     scannerLog.info({ symbol, scanId, status: aiResult.setupStatus, grade: finalGrade, pct: finalPct }, 'AI verification result');
 
@@ -522,6 +522,31 @@ Return ONLY valid JSON (no markdown, no extra text):
       }
     } catch { /* non-fatal */ }
 
+    // 4f. ORDER-BOOK CONFLUENCE BONUS — real limit-order walls confirm setup.
+    // Uses stableWhaleWalls (persisted >threshold = real, not spoofing).
+    // A wall on the "right" side of price confirms the SMC level; a wall inside
+    // or near the OTE zone is a strong confluence signal. Adds bonus points.
+    let obConfluence = 0;
+    let obNote = null;
+    try {
+      const snap = aggregator.getSnapshot();
+      const walls = snap.stableWhaleWalls || [];
+      const zoneMid = (ote.entry?.low != null && ote.entry?.high != null)
+        ? (ote.entry.low + ote.entry.high) / 2 : null;
+      for (const w of walls) {
+        const distPct = zoneMid != null && zoneMid > 0
+          ? Math.abs(w.price - zoneMid) / zoneMid * 100 : 999;
+        if (distPct > 3) continue; // only walls near the setup zone
+        const sideOk = (tradeDir === 'SHORT' && (w.side === 'bid' || w.side === 'ask')) ||
+                       (tradeDir === 'LONG'  && (w.side === 'bid' || w.side === 'ask'));
+        if (sideOk) {
+          obConfluence += 2;
+          obNote = `[OB-CONFLUENCE] ${w.side} wall at $${w.price} (${distPct.toFixed(1)}% from zone) confirms ${tradeDir}`;
+          break;
+        }
+      }
+    } catch { /* non-fatal */ }
+
     // 5. Accept grades ≥ C and statuses ACTIVE/PENDING.
     // WAIT is treated as PENDING (kept in DB for re-scan) — the engine isn't
     // ready yet but the setup is real, so we don't delete it.
@@ -554,7 +579,7 @@ Return ONLY valid JSON (no markdown, no extra text):
         status:       effectiveStatus,
         grade:        finalGrade,
         pct:          finalPct,
-        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (flowReason ? `[FLOW] ${flowReason} ` : '') + (aiResult.reasoning || ''),
+        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (flowReason ? `[FLOW] ${flowReason} ` : '') + (obNote ? `${obNote} ` : '') + (aiResult.reasoning || ''),
         timestamp:    new Date().toISOString(),
         // ── Macro overlay (F&G + DXY) — PTS-style sentiment/headwind filter ──
         fgValue:      macro?.fgValue ?? null,
