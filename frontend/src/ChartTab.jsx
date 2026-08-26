@@ -44,14 +44,21 @@ export default function ChartTab({ assets, API_BASE, signals, livePrices, onPric
   useEffect(() => {
     let cancelled = false;
     let iv;
-    async function load() {
+    async function load(retry = 0) {
       if (cancelled) return;
       setLoading(true); setErr(null);
       try {
         const res = await fetch(`${API_BASE}/api/candles?symbol=${symbol}&interval=${tf}&limit=250`);
         const d = await res.json();
         if (cancelled) return;
-        if (d.error) { setErr(d.error); setLoading(false); return; }
+        if (d.error) {
+          // Retry once after 2s if rate-limited
+          if (retry < 1 && /too many|rate/i.test(d.error)) {
+            setTimeout(() => load(retry + 1), 2000);
+            return;
+          }
+          setErr(d.error); setLoading(false); return;
+        }
         if (seriesRef.current) seriesRef.current.setData(d.candles || []);
         if (chartRef.current) chartRef.current.timeScale().fitContent();
       } catch (e) {
@@ -61,7 +68,7 @@ export default function ChartTab({ assets, API_BASE, signals, livePrices, onPric
       }
     }
     load();
-    iv = setInterval(load, 60000); // poll every 60s (backend caches 30s)
+    iv = setInterval(() => load(), 60000); // poll every 60s (backend caches 30s)
     return () => { cancelled = true; clearInterval(iv); };
   }, [symbol, tf, API_BASE]);
 

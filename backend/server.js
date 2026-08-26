@@ -38,6 +38,27 @@ if (missingEnv.length > 0) {
 const __filename = fileURLToPath(import.meta.url);
 const __dirname = path.dirname(__filename);
 
+// ── Global Binance rate limiter (max 1 req / 500ms) ──
+let _lastBinanceCall = 0;
+async function binanceFetch(url, retries = 2) {
+  for (let attempt = 0; attempt <= retries; attempt++) {
+    const now = Date.now();
+    const wait = Math.max(0, 500 - (now - _lastBinanceCall));
+    if (wait > 0) await new Promise(r => setTimeout(r, wait));
+    _lastBinanceCall = Date.now();
+    try {
+      const r = await fetch(url);
+      if (r.ok) return { ok: true, data: await r.json(), status: r.status };
+      if (r.status === 429 && attempt < retries) { await new Promise(r => setTimeout(r, 1500)); continue; }
+      return { ok: false, status: r.status };
+    } catch (e) {
+      if (attempt < retries) { await new Promise(r => setTimeout(r, 1000)); continue; }
+      return { ok: false, error: e.message };
+    }
+  }
+  return { ok: false, error: 'max retries' };
+}
+
 const app = express();
 const port = process.env.PORT || 5000;
 
@@ -521,21 +542,18 @@ app.get('/api/candles', async (req, res) => {
     const lim = Math.min(tp, 1000);
     let raw = null;
     let src = 'binance';
-    // Try Binance first
-    try {
-      const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${lim}`;
-      const r = await fetch(url);
-      if (r.ok) raw = await r.json();
-    } catch {}
+    // Try Binance first (rate-limited globally)
+    const bRes = await binanceFetch(`https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${lim}`);
+    if (bRes.ok) raw = bRes.data;
     // Fallback to Bybit if Binance failed/rate-limited
     if (!raw) {
       try {
-        const bybitSym = binanceSymbol.replace('USDT', 'USDT');
-        const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${bybitSym}&interval=${interval}&limit=${lim}`;
+        const bybitInterval = ({ '1m':'1','3m':'3','5m':'5','15m':'15','30m':'30','1h':'60','2h':'120','4h':'240','6h':'360','12h':'720','1d':'D','1w':'W','1M':'M' })[interval] || '60';
+        const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${binanceSymbol}&interval=${bybitInterval}&limit=${lim}`;
         const r = await fetch(url);
         if (r.ok) {
           const j = await r.json();
-          if (j.result && Array.isArray(j.result.list)) {
+          if (j.result && Array.isArray(j.result.list) && j.result.list.length) {
             raw = j.result.list.map(k => [
               Number(k[0]), k[1], k[2], k[3], k[4], k[5]
             ]).reverse(); // Bybit returns newest-first
@@ -593,9 +611,9 @@ app.get('/api/prices', async (req, res) => {
     await Promise.all(symbols.map(async (sym) => {
       const clean = sym.replace(/[\/\.\-]/g, '').replace(/P$/i, '');
       try {
-        const r = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${clean}`);
+        const r = await binanceFetch(`https://api.binance.com/api/v3/ticker/price?symbol=${clean}`);
         if (r.ok) {
-          const d = await r.json();
+          const d = r.data;
           prices[sym] = parseFloat(d.price);
           priceCache.set(sym, { ts: Date.now(), price: prices[sym] });
         } else {
