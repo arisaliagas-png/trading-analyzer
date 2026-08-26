@@ -361,8 +361,13 @@ Return ONLY valid JSON (no markdown, no extra text):
     const zoneLow  = ote.entry?.low;
     const zoneHigh = ote.entry?.high;
     const priceNow = ind.currentPrice;
+    // Allow ACTIVE if price is INSIDE zone OR within 1.5% of it (near-zone entry).
+    const zoneMid = (zoneLow != null && zoneHigh != null) ? (zoneLow + zoneHigh) / 2 : null;
+    const zoneWidth = (zoneLow != null && zoneHigh != null) ? Math.abs(zoneHigh - zoneLow) : 0;
+    const nearZonePct = zoneMid != null && zoneMid > 0 ? Math.abs(priceNow - zoneMid) / zoneMid * 100 : 999;
     const inZone = zoneLow != null && zoneHigh != null && priceNow != null &&
-      priceNow >= Math.min(zoneLow, zoneHigh) && priceNow <= Math.max(zoneLow, zoneHigh);
+      (priceNow >= Math.min(zoneLow, zoneHigh) && priceNow <= Math.max(zoneLow, zoneHigh) ||
+       nearZonePct <= 2.5);  // within 2.5% of zone center = acceptable entry
     if (!inZone && aiResult.setupStatus === 'ACTIVE') {
       scannerLog.info({ symbol, scanId, priceNow, zoneLow, zoneHigh }, 'Price outside OTE zone — downgrading ACTIVE → PENDING');
       aiResult.setupStatus = 'PENDING';
@@ -811,20 +816,7 @@ export async function getScanState() {
 // ─────────────────────────────────────────────
 export async function startScanner() {
   const count = await getActiveTrades().length;
-  scannerLog.info({ activeSignals: count }, 'Scanner ready — starting auto-scan loop');
-
-  // Passive auto-scan: runs every 10 min, waits for price to enter OTE zone.
-  // No manual button needed — finds ACTIVE setups automatically.
-  const AUTO_SCAN_MS = 10 * 60 * 1000;
-  setInterval(async () => {
-    if (scanState.isScanning) return;
-    try {
-      scannerLog.info({}, 'Auto-scan triggered');
-      await triggerManualScan();
-    } catch (e) {
-      scannerLog.warn({ err: e.message }, 'Auto-scan skipped');
-    }
-  }, AUTO_SCAN_MS);
+  scannerLog.info({ activeSignals: count }, 'Scanner ready — waiting for manual trigger');
 }
 
 // ─────────────────────────────────────────────
