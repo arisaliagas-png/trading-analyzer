@@ -297,11 +297,33 @@ async function runBacktest(symbol, limit = 1000, opts = {}, cachedKlines = null)
   const simReserve = maxBars + 4;               // small buffer so TP/SL aren't clipped by last candle
   const warmReserve = 205;                       // EMA200 warmup + WT/pivot needs
   const scanEnd = Math.max(0, close.length - simReserve);
-  const scanStart = Math.min(300, Math.max(warmReserve, scanEnd));
-  for (let i = scanStart; i < scanEnd; i++) {
+
+  // Adaptive start: if data is shorter than warmup, shrink warmup so the loop still runs
+  const effectiveWarmup = Math.min(warmReserve, Math.max(0, scanEnd));
+  const scanStart = Math.min(300, Math.max(effectiveWarmup, scanEnd));
+
+  // For very short datasets, ensure we actually enter the loop by bounding start < end
+  const loopStart = Math.min(scanStart, Math.max(0, close.length - simReserve + 1));
+  const loopEnd = close.length - 1;
+
+  // Fallback MTF EMAs when dataset is too short for EMA200 ( < 200 bars )
+  const hasFullEma200 = ema200_1h.some(v => v !== null);
+  const fallbackEma_1h = ema(close, Math.min(200, Math.max(10, close.length - 1)));
+  const effectiveEma200_1h = hasFullEma200 ? ema200_1h : fallbackEma_1h;
+
+  const ema200_4h_full = ema(close4h, 200);
+  const ema200_D_full = ema(closeD, 200);
+  const hasEma4h = ema200_4h_full.some(v => v !== null);
+  const hasEmaD = ema200_D_full.some(v => v !== null);
+  const fallbackEma_4h = ema(close4h, Math.min(200, Math.max(10, close4h.length - 1)));
+  const fallbackEma_D = ema(closeD, Math.min(200, Math.max(10, closeD.length - 1)));
+  const effectiveEma200_4h = hasEma4h ? ema200_4h_full : fallbackEma_4h;
+  const effectiveEma200_D = hasEmaD ? ema200_D_full : fallbackEma_D;
+
+  for (let i = loopStart; i < loopEnd; i++) {
     // Need enough history for pivots + indicators
     if (wt1[i] === null || wt2[i] === null || atrArr[i] === null) continue;
-    if (ema200_1h[i] === null) continue;
+    if (effectiveEma200_1h[i] === null) continue;
 
     // Find last confirmed swing high/low before i
     let swingH = null, swingL = null;
@@ -321,7 +343,7 @@ async function runBacktest(symbol, limit = 1000, opts = {}, cachedKlines = null)
     const lastPL = pl[i - 1] !== null ? pl[i - 1] : swingL;
     if (high[i] >= lastPH) prevStruct = true;
     else if (low[i] <= lastPL) prevStruct = false;
-    else if (prevStruct === null) prevStruct = (ema200_1h[i] < close[i]);
+    else if (prevStruct === null) prevStruct = (effectiveEma200_1h[i] < close[i]);
     const structIsUp = prevStruct;
     cStruct++;
 
@@ -362,9 +384,9 @@ async function runBacktest(symbol, limit = 1000, opts = {}, cachedKlines = null)
     // MTF Bias (Pine: mtfBiasScore = htfB1 + htfB2 + htfB3, each ±1)
     const idx4h = Math.floor(i / 4);
     const idxD = Math.floor(i / 24);
-    const htfB1 = close[i] > ema200_1h[i] ? 1 : close[i] < ema200_1h[i] ? -1 : 0;
-    const htfB2 = idx4h < ema200_4h.length && close4h[idx4h] > ema200_4h[idx4h] ? 1 : idx4h < ema200_4h.length && close4h[idx4h] < ema200_4h[idx4h] ? -1 : 0;
-    const htfB3 = idxD < ema200_D.length && closeD[idxD] > ema200_D[idxD] ? 1 : idxD < ema200_D.length && closeD[idxD] < ema200_D[idxD] ? -1 : 0;
+    const htfB1 = close[i] > effectiveEma200_1h[i] ? 1 : close[i] < effectiveEma200_1h[i] ? -1 : 0;
+    const htfB2 = idx4h < effectiveEma200_4h.length && close4h[idx4h] > effectiveEma200_4h[idx4h] ? 1 : idx4h < effectiveEma200_4h.length && close4h[idx4h] < effectiveEma200_4h[idx4h] ? -1 : 0;
+    const htfB3 = idxD < effectiveEma200_D.length && closeD[idxD] > effectiveEma200_D[idxD] ? 1 : idxD < effectiveEma200_D.length && closeD[idxD] < effectiveEma200_D[idxD] ? -1 : 0;
     const mtfBiasScore = htfB1 + htfB2 + htfB3;
     // RELAXED: Pine uses >=2 / <=-2 (3/3 alignment). Configurable via cfg.mtfThreshold.
     const mtfBullish = mtfBiasScore >= cfg.mtfThreshold;

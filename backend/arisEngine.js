@@ -351,6 +351,26 @@ function computeUFOFusion({ wt1, wt2, hybridOsc, stochK, mfi, cmf, cvdBias }) {
   return { ufoScore, ufoNorm, bullCount, bearCount, signals };
 }
 
+// ─── gradeSignal: magnitude-scaled signal scoring (borrowed & adapted from
+//     PTS WIZARD's `gradeSig` in the ATLAS terminal bundle) ────────────────────
+// The key idea we were missing: a CONTINUOUS signal (e.g. newsSentiment = 0.2)
+// was being hard-binarized to a full +1, overstating weak signals. gradeSig maps
+// any number in [-full, +full] to a proportional score in [-pts, +pts], with a
+// dead-zone near zero that scores 0 (NOT a -pts bearish hit). Missing/NaN input
+// returns null so callers can treat it as neutral (never as a false bearish).
+//   - x     : the raw signal value (number) or null/undefined
+//   - dead  : |x| below this is treated as noise -> 0
+//   - full  : |x| at/above this maps to the full +/-pts
+//   - pts   : max magnitude of the returned score
+// Mirrors ATLAS: `if(a<=dead)return 0; k=min(1,(a-dead)/(full-dead)); return sign*k*pts;`
+export function gradeSignal(x, dead, full, pts) {
+  if (x == null || !isFinite(x)) return null;
+  const a = Math.abs(x);
+  if (a <= dead) return 0;
+  const k = Math.min(1, (a - dead) / Math.max(1e-9, full - dead));
+  return (x > 0 ? 1 : -1) * k * pts;
+}
+
 // ─── VWAP (session approximation) ────────────────────────────────────────────
 
 function computeVWAP(highs, lows, closes, volumes) {
@@ -1063,9 +1083,10 @@ function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfi
     // Benford (1 pt — clean volume distribution)
     benfordOk ? 1 : 0,
 
-    // UFO Fusion bonus for extreme readings
-    ufoNorm >= 66 ? 1 : 0,
-    ufoNorm === 100 ? 1 : 0,
+    // UFO Fusion bonus for extreme readings (magnitude-scaled via gradeSignal:
+    // a 70 reads weaker than a 100, instead of both being a blunt +1)
+    ufoNorm != null ? Math.round(gradeSignal(ufoNorm, 66, 100, 1)) : 0,
+    ufoNorm != null ? Math.round(gradeSignal(ufoNorm, 95, 100, 1)) : 0,
 
     // Hybrid + WT agree (confluence bonus)
     hybridLast != null && wt1Last != null && hybridLast > 0 && wt1Last > 0 ? 1 : 0,
@@ -1076,8 +1097,9 @@ function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfi
     // CVD + FP agree
     cvdBias === 'BULL' && fpBias > 0 ? 1 : 0,
 
-    // Real-news sentiment (CryptoPanic/CoinGecko): +1 LONG if clearly bullish
-    (newsSentiment != null && newsSentiment > 0.15) ? 1 : 0,
+    // Real-news sentiment (CryptoPanic/CoinGecko): magnitude-scaled via gradeSignal
+    // so a weak 0.2 read scores ~+0.06 instead of a blunt full +1.
+    (newsSentiment != null) ? Math.round(gradeSignal(newsSentiment, 0.15, 1.0, 1) * 100) / 100 : 0,
 
     // Market Structure (BOS/CHoCH trend read): +1 LONG if uptrend
     (structureTrend === 'UP') ? 1 : 0,
@@ -1111,8 +1133,8 @@ function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfi
     hybridLast != null && wt1Last != null && hybridLast < 0 && wt1Last < 0 ? 1 : 0,
     mfiLast != null && cmfLast != null && mfiLast < 50 && cmfLast < 0 ? 1 : 0,
 
-    // Real-news sentiment (CryptoPanic/CoinGecko): +1 SHORT if clearly bearish
-    (newsSentiment != null && newsSentiment < -0.15) ? 1 : 0,
+    // Real-news sentiment (SHORT side): magnitude-scaled, symmetric to LONG
+    (newsSentiment != null) ? Math.round(gradeSignal(newsSentiment, 0.15, 1.0, 1) * 100) / 100 : 0,
 
     // Market Structure (BOS/CHoCH trend read): +1 SHORT if downtrend
     (structureTrend === 'DOWN') ? 1 : 0,
