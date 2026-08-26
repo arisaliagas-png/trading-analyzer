@@ -505,19 +505,52 @@ app.get('/api/history', async (req, res) => {
 // ─────────────────────────────────────────────
 // CANDLES — OHLCV data for the frontend chart
 // ─────────────────────────────────────────────
+const candleCache = new Map();
+const CANDLE_CACHE_MS = 30 * 1000;
+
 app.get('/api/candles', async (req, res) => {
   try {
     const { symbol = 'BTCUSDT', interval = '1h', limit = 250 } = req.query;
     const binanceSymbol = symbol.toUpperCase().replace(/[^A-Z0-9]/g, '');
-    const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${Math.min(Number(limit) || 250, 1000)}`;
-    const r = await fetch(url);
-    if (!r.ok) return res.status(502).json({ error: `Binance ${r.status}` });
-    const raw = await r.json();
+    const cacheKey = `${binanceSymbol}_${interval}_${limit}`;
+    const cached = candleCache.get(cacheKey);
+    if (cached && Date.now() - cached.ts < CANDLE_CACHE_MS) {
+      return res.json({ symbol: binanceSymbol, interval, candles: cached.candles, cached: true });
+    }
+    const tp = (typeof limit === 'string' ? parseInt(limit, 10) : limit) || 250;
+    const lim = Math.min(tp, 1000);
+    let raw = null;
+    let src = 'binance';
+    // Try Binance first
+    try {
+      const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=${lim}`;
+      const r = await fetch(url);
+      if (r.ok) raw = await r.json();
+    } catch {}
+    // Fallback to Bybit if Binance failed/rate-limited
+    if (!raw) {
+      try {
+        const bybitSym = binanceSymbol.replace('USDT', 'USDT');
+        const url = `https://api.bybit.com/v5/market/kline?category=spot&symbol=${bybitSym}&interval=${interval}&limit=${lim}`;
+        const r = await fetch(url);
+        if (r.ok) {
+          const j = await r.json();
+          if (j.result && Array.isArray(j.result.list)) {
+            raw = j.result.list.map(k => [
+              Number(k[0]), k[1], k[2], k[3], k[4], k[5]
+            ]).reverse(); // Bybit returns newest-first
+            src = 'bybit';
+          }
+        }
+      } catch {}
+    }
+    if (!raw) return res.status(502).json({ error: 'All price sources unavailable (Binance rate-limited)' });
     const candles = raw.map(k => ({
       time: Math.floor(k[0] / 1000),
       open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: parseFloat(k[4]), volume: parseFloat(k[5])
     }));
-    res.json({ symbol: binanceSymbol, interval, candles });
+    candleCache.set(cacheKey, { ts: Date.now(), candles });
+    res.json({ symbol: binanceSymbol, interval, candles, source: src });
   } catch (e) {
     res.status(500).json({ error: e.message });
   }
@@ -564,17 +597,33 @@ app.get('/api/prices', async (req, res) => {
         if (r.ok) {
           const d = await r.json();
           prices[sym] = parseFloat(d.price);
-        } else if (r.status === 400) {
-          // Try Hyperliquid for alts/perps not on Binance spot
-          const hl = await fetch(`https://api.hyperliquid.xyz/info`, {
-            method: 'POST',
-            headers: { 'Content-Type': 'application/json' },
-            body: JSON.stringify({ type: 'allMids' })
-          });
-          if (hl.ok) {
-            const mids = await hl.json();
-            const key = Object.keys(mids).find(k => k.toUpperCase() === clean);
-            if (key) prices[sym] = parseFloat(mids[key]);
+          priceCache.set(sym, { ts: Date.now(), price: prices[sym] });
+        } else {
+          // Try Bybit as fallback (spot ticker)
+          try {
+            const r2 = await fetch(`https://api.bybit.com/v5/market/tickers?category=spot&symbol=${clean}`);
+            if (r2.ok) {
+              const j = await r2.json();
+              const t = j.result?.list?.[0];
+              if (t && t.lastPrice) {
+                prices[sym] = parseFloat(t.lastPrice);
+                priceCache.set(sym, { ts: Date.now(), price: prices[sym] });
+                return;
+              }
+            }
+          } catch {}
+          if (r.status === 400) {
+            // Try Hyperliquid for alts/perps not on Binance spot
+            const hl = await fetch(`https://api.hyperliquid.xyz/info`, {
+              method: 'POST',
+              headers: { 'Content-Type': 'application/json' },
+              body: JSON.stringify({ type: 'allMids' })
+            });
+            if (hl.ok) {
+              const mids = await hl.json();
+              const key = Object.keys(mids).find(k => k.toUpperCase() === clean);
+              if (key) prices[sym] = parseFloat(mids[key]);
+            }
           }
         }
       } catch { /* skip */ }

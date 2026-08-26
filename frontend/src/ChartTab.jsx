@@ -40,10 +40,12 @@ export default function ChartTab({ assets, API_BASE, signals, livePrices, onPric
     return () => { ro.disconnect(); chart.remove(); };
   }, []);
 
-  // ── Load candles when symbol/tf changes ──
+  // ── Load candles when symbol/tf changes + poll every 60s ──
   useEffect(() => {
     let cancelled = false;
+    let iv;
     async function load() {
+      if (cancelled) return;
       setLoading(true); setErr(null);
       try {
         const res = await fetch(`${API_BASE}/api/candles?symbol=${symbol}&interval=${tf}&limit=250`);
@@ -59,7 +61,8 @@ export default function ChartTab({ assets, API_BASE, signals, livePrices, onPric
       }
     }
     load();
-    return () => { cancelled = true; };
+    iv = setInterval(load, 60000); // poll every 60s (backend caches 30s)
+    return () => { cancelled = true; clearInterval(iv); };
   }, [symbol, tf, API_BASE]);
 
   // ── Find scanner signal for this symbol ──
