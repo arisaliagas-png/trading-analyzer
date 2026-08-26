@@ -811,7 +811,20 @@ export async function getScanState() {
 // ─────────────────────────────────────────────
 export async function startScanner() {
   const count = await getActiveTrades().length;
-  scannerLog.info({ activeSignals: count }, 'Scanner ready — waiting for manual trigger');
+  scannerLog.info({ activeSignals: count }, 'Scanner ready — starting auto-scan loop');
+
+  // Passive auto-scan: runs every 10 min, waits for price to enter OTE zone.
+  // No manual button needed — finds ACTIVE setups automatically.
+  const AUTO_SCAN_MS = 10 * 60 * 1000;
+  setInterval(async () => {
+    if (scanState.isScanning) return;
+    try {
+      scannerLog.info({}, 'Auto-scan triggered');
+      await triggerManualScan();
+    } catch (e) {
+      scannerLog.warn({ err: e.message }, 'Auto-scan skipped');
+    }
+  }, AUTO_SCAN_MS);
 }
 
 // ─────────────────────────────────────────────
