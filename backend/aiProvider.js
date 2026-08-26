@@ -359,7 +359,7 @@ export async function askAI(systemPrompt, messages, forceProvider = null) {
       parts: [{ text: m.content }]
     }));
     const response = await fetch(
-      `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`,
+      `https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent?key=${apiKey}`,
       {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -445,7 +445,7 @@ async function callAI(systemPrompt, userContent, mimeType = null, imageBuffer = 
       parts.push({ inlineData: { mimeType, data: imageBuffer.toString('base64') } });
     }
 
-    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-1.5-flash:generateContent?key=${apiKey}`;
+    const url = `https://generativelanguage.googleapis.com/v1/models/gemini-3.6-flash:generateContent?key=${apiKey}`;
     const response = await fetch(url, {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
@@ -532,9 +532,17 @@ async function callAI(systemPrompt, userContent, mimeType = null, imageBuffer = 
 // --- Primary analysis ---
 export async function analyzeChart(imageBuffer, mimeType, pair = '', timeframe = '', hints = '', orderbookContext = null, indicatorContext = null, newsContext = null, forceProvider = null) {
   // Analyzer always uses a vision-capable provider (Gemini/Anthropic).
-  // OpenRouter free models do not support image inputs.
-  const provider = (forceProvider === 'openrouter') ? null : (forceProvider || process.env.AI_PROVIDER || 'gemini');
-  const actualProvider = provider === 'openrouter' ? null : provider;
+  // OpenRouter free models do not support image inputs, so we NEVER use
+  // openrouter here even if AI_PROVIDER is set to it (that is only for text chat).
+  let provider = forceProvider && forceProvider !== 'openrouter'
+    ? forceProvider
+    : (process.env.AI_PROVIDER && process.env.AI_PROVIDER !== 'openrouter'
+        ? process.env.AI_PROVIDER
+        : 'anthropic');
+  // Prefer a provider whose key actually exists; fall back to whichever is available
+  if (provider === 'gemini' && !process.env.GEMINI_API_KEY && process.env.ANTHROPIC_API_KEY) provider = 'anthropic';
+  if (provider === 'anthropic' && !process.env.ANTHROPIC_API_KEY && process.env.GEMINI_API_KEY) provider = 'gemini';
+  const actualProvider = provider;
   const tfInstruction = timeframe
     ? `IMPORTANT: The user has confirmed the timeframe is "${timeframe}". Use this exact timeframe — do NOT override it.`
     : `Auto-detect the timeframe from the chart's UI (look for the timeframe button/label in the top-left of the chart).`;
