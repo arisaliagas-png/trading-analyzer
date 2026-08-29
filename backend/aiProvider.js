@@ -631,14 +631,14 @@ export async function analyzeChart(imageBuffer, mimeType, pair = '', timeframe =
     }
 
     // 1. Asset-Specific Lessons
-    const longLessons  = getLessonsFor(pair, 'LONG');
-    const shortLessons = getLessonsFor(pair, 'SHORT');
+    const longLessons  = await getLessonsFor(pair, 'LONG');
+    const shortLessons = await getLessonsFor(pair, 'SHORT');
     const localLessons = [...longLessons, ...shortLessons]
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))
       .slice(0, 2);
 
     // 2. Global Rules (Lessons from other assets)
-    const allSystemLessons = getAllLessons();
+    const allSystemLessons = await getAllLessons();
     const globalLessons = allSystemLessons
       .filter(l => l.instrument.toUpperCase() !== pair.toUpperCase())
       .sort((a, b) => new Date(b.created_at) - new Date(a.created_at))

@@ -30,7 +30,7 @@ import { scannerLog } from './logger.js';
 //   R1 Volume:  relativeVolume.ratio < 0.3  → veto (any direction)
 //   R2 Squeeze: squeeze.state==='RELEASED' && squeeze.direction opposes tradeDir → veto
 //   R3 Bookmap: liveCvdBias opposes tradeDir (SHORT + BULL bookmap, or LONG + BEAR) → veto
-function applyLessonVeto({ engine, tradeDir, liveCvdBias }) {
+async function applyLessonVeto({ engine, tradeDir, liveCvdBias }) {
   const violated = [];
   const reasons = [];
 
@@ -39,7 +39,7 @@ function applyLessonVeto({ engine, tradeDir, liveCvdBias }) {
   let hasLesson = false;
   try {
     const dir = tradeDir === 'LONG' ? 'LONG' : 'SHORT';
-    const lessons = getLessonsFor(engine.symbol || '', dir);
+    const lessons = await getLessonsFor(engine.symbol || '', dir);
     hasLesson = Array.isArray(lessons) && lessons.length > 0;
   } catch { /* DB not ready — skip veto */ }
 
@@ -454,7 +454,7 @@ Return ONLY valid JSON (no markdown, no extra text):
     // If this symbol+direction has recorded failures, enforce the lessons as
     // data-driven rules. A violation downgrades the setup to PENDING (WAIT) so it
     // is NOT auto-executed, but stays in the DB for re-scan when conditions clear.
-    const veto = applyLessonVeto({ engine, tradeDir, liveCvdBias });
+    const veto = await applyLessonVeto({ engine, tradeDir, liveCvdBias });
     let lessonVetoReason = null;
     if (veto.veto) {
       lessonVetoReason = veto.reason;
