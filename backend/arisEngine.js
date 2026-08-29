@@ -788,7 +788,7 @@ export function calculateExecutionSetup({
       const tp1 = (tp1Raw - idealPrice) >= (1.5 * riskDist)
         ? tp1Raw
         : idealPrice + 1.5 * riskDist;
-      const tp2 = Math.max(swingHigh + range * 0.618, idealPrice + 3.0 * riskDist);
+      const tp2 = idealPrice + 1.5 * (tp1 - idealPrice); // TP2 = TP1 + 50% extension (realistic, hittable)
       const capped = capTargets('LONG', entry.price, entry.low * 0.998, null, sl, tp1, tp2);
       return {
         strategy: 'ALCHEMIC_REACTION',
@@ -814,7 +814,7 @@ export function calculateExecutionSetup({
       const tp1 = (idealPrice - tp1Raw) >= (1.5 * riskDist)
         ? tp1Raw
         : idealPrice - 1.5 * riskDist;
-      const tp2 = Math.min(swingLow - range * 0.618, idealPrice - 3.0 * riskDist);
+      const tp2 = idealPrice - 1.5 * (idealPrice - tp1); // TP2 = TP1 - 50% extension (realistic, hittable)
       const capped = capTargets('SHORT', entry.price, null, entry.high * 1.002, sl, tp1, tp2);
       return {
         strategy: 'ALCHEMIC_REACTION',
@@ -836,7 +836,7 @@ export function calculateExecutionSetup({
       const entry = formatZone(idealPrice, idealPrice - 0.5 * atr, idealPrice + 0.5 * atr);
       const sl = currentPrice - 1.5 * atr;
       const tp1 = currentPrice + 2.0 * atr;   // Min 1.33:1 R:R
-      const tp2 = currentPrice + 4.0 * atr;   // Extended target
+      const tp2 = currentPrice + 1.5 * (tp1 - currentPrice);   // TP2 = TP1 + 50% extension (realistic, hittable)
       const capped = capTargets('LONG', entry.price, entry.low * 0.998, null, sl, tp1, tp2);
       return { strategy: 'MOMENTUM_BREAKOUT', direction: 'LONG', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: '🚀 TRENDING MOMENTUM (Market Entry via ATR Breakout)' };
     } else if (!isUpward && cvdBias === 'BEAR') {
@@ -845,7 +845,7 @@ export function calculateExecutionSetup({
       const entry = formatZone(idealPrice, idealPrice - 0.5 * atr, idealPrice + 0.5 * atr);
       const sl = currentPrice + 1.5 * atr;
       const tp1 = currentPrice - 2.0 * atr;   // Min 1.33:1 R:R
-      const tp2 = currentPrice - 4.0 * atr;   // Extended target
+      const tp2 = currentPrice - 1.5 * (currentPrice - tp1);   // TP2 = TP1 - 50% extension (realistic, hittable)
       const capped = capTargets('SHORT', entry.price, null, entry.high * 1.002, sl, tp1, tp2);
       return { strategy: 'MOMENTUM_BREAKOUT', direction: 'SHORT', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: '🚀 TRENDING MOMENTUM (Market Entry via ATR Breakout)' };
     }
@@ -871,7 +871,7 @@ export function calculateExecutionSetup({
         const riskDist = idealPrice - sl;
         const tp1Raw = swingHigh;
         const tp1 = (tp1Raw - idealPrice) >= (1.5 * riskDist) ? tp1Raw : idealPrice + 1.5 * riskDist;
-        const tp2 = Math.max(swingHigh + range * 0.618, idealPrice + 3.0 * riskDist);
+        const tp2 = idealPrice + 1.5 * (tp1 - idealPrice); // TP2 = TP1 + 50% extension (realistic, hittable)
         const capped = capTargets('LONG', entry.price, entry.low * 0.998, null, sl, tp1, tp2);
         return { strategy: 'LIQUIDITY_SHIELD', direction: 'LONG', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Bid Wall at $${f(closestWall.price)})` };
       } else if (closestWall.side === 'ask' && !isUpward) {
@@ -882,7 +882,7 @@ export function calculateExecutionSetup({
         const riskDist = sl - idealPrice;
         const tp1Raw = swingLow;
         const tp1 = (idealPrice - tp1Raw) >= (1.5 * riskDist) ? tp1Raw : idealPrice - 1.5 * riskDist;
-        const tp2 = Math.min(swingLow - range * 0.618, idealPrice - 3.0 * riskDist);
+        const tp2 = idealPrice - 1.5 * (idealPrice - tp1); // TP2 = TP1 - 50% extension (realistic, hittable)
         const capped = capTargets('SHORT', entry.price, null, entry.high * 1.002, sl, tp1, tp2);
         return { strategy: 'LIQUIDITY_SHIELD', direction: 'SHORT', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Ask Wall at $${f(closestWall.price)})` };
       }
@@ -955,7 +955,7 @@ export function calculateExecutionSetup({
     const tp1 = (tp1Raw - idealPrice) >= (1.5 * riskDist)
       ? tp1Raw
       : idealPrice + 1.5 * riskDist;                     // enforce min 1.5:1 R:R
-    const tp2 = Math.max(tp2Raw, idealPrice + 3.0 * riskDist); // enforce min 3:1 R:R
+    const tp2 = idealPrice + 1.5 * (tp1 - idealPrice); // TP2 = TP1 + 50% extension (realistic, hittable)
     const capped = capTargets('LONG', entry.price, entry.low * 0.998, null, sl, tp1, tp2);
 
     const note = ob
@@ -1007,7 +1007,7 @@ export function calculateExecutionSetup({
     const tp1 = (idealPrice - tp1Raw) >= (1.5 * riskDist)
       ? tp1Raw
       : idealPrice - 1.5 * riskDist;                     // enforce min 1.5:1 R:R
-    const tp2 = Math.min(tp2Raw, idealPrice - 3.0 * riskDist); // enforce min 3:1 R:R
+    const tp2 = idealPrice - 1.5 * (idealPrice - tp1); // TP2 = TP1 - 50% extension (realistic, hittable)
     const capped = capTargets('SHORT', entry.price, null, entry.high * 1.002, sl, tp1, tp2);
 
     const note = ob
