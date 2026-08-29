@@ -426,8 +426,10 @@ Return ONLY valid JSON (no markdown, no extra text):
       // must push TP1 out to keep R:R >= 2.0 (never ship <2.0 after a widen).
       const newRiskDist = Math.abs(idealEntry - newSl);
       const tpSign = tradeDir === 'LONG' ? 1 : -1;
-      ote.tp1 = idealEntry + tpSign * 2.0 * newRiskDist;
-      ote.tp2 = idealEntry + tpSign * 3.0 * newRiskDist;
+      // 2.05x (not 2.0x) gives headroom so floating-point rounding never
+      // reports R:R < 2.0 (e.g. 1.01% SL vs 1.99% TP1 = 1.97x).
+      ote.tp1 = idealEntry + tpSign * 2.05 * newRiskDist;
+      ote.tp2 = idealEntry + tpSign * 3.05 * newRiskDist;
       const newRr = newRiskDist > 0 ? Math.abs(ote.tp1 - idealEntry) / newRiskDist : 0;
       signalRr = newRr;
     }

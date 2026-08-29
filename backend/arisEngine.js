@@ -723,10 +723,10 @@ export function calculateExecutionSetup({
   const TP2_CAP = Math.min(8, 4 * atrPct);     // % max distance entry→TP2
   const SL_CAP  = Math.min(3, 1.5 * atrPct);   // % max distance entry→SL
   const capTargets = (direction, entryPrice, slFloor, slCeil, sl, tp1, tp2) => {
-    // Hard floor: TP1 must stay at least 2.0x the SL risk away from entry.
-    // The volatility caps above may clip a small structural TP1, but we never
-    // ship a setup with R:R < 2.0 (backtest edge is ~2.4R).
-    const minTp1Dist = Math.abs(entryPrice - sl) * 2.0;
+    // Hard floor: TP1 must stay at least 2.05x the SL risk away from entry.
+    // 2.05 (not 2.0) gives headroom so floating-point rounding never reports
+    // R:R < 2.0 (e.g. 1.01% SL vs 1.99% TP1 = 1.97x). Backtest edge is ~2.4R.
+    const minTp1Dist = Math.abs(entryPrice - sl) * 2.05;
     // Order matters: first clamp TP to the volatility cap (so we never ship an
     // absurd structural target), THEN enforce the 2.0x-SL floor. The previous
     // code applied floor-then-cap, which let a tight TP1_CAP clip the floor and
