@@ -23,9 +23,11 @@ import { getAllTrades, getPriceHistory } from './db.js';
 // ─────────────────────────────────────────────
 
 function winRate(trades) {
-  const closed = trades.filter(t => t.status === 'SUCCESS' || t.status === 'FAILED');
+  // PARTIAL counts as a WIN: TP1 hit → 70% banked + remaining 30% at breakeven
+  // (risk-free). Per system design, a setup that hits TP1 is a successful setup.
+  const closed = trades.filter(t => t.status === 'SUCCESS' || t.status === 'FAILED' || t.status === 'PARTIAL');
   if (!closed.length) return { wins: 0, losses: 0, total: 0, winRate: null };
-  const wins = closed.filter(t => t.status === 'SUCCESS').length;
+  const wins = closed.filter(t => t.status === 'SUCCESS' || t.status === 'PARTIAL').length;
   return {
     wins,
     losses: closed.length - wins,
@@ -199,10 +201,16 @@ export async function computeAnalytics() {
   // ── 6. Expectancy (per trade average profit in R) ───────
   // Expectancy = (Win% × avg_win_R) - (Loss% × avg_loss_R)
   // Simplified: Win% × avg_theoretical_RR - Loss% × 1.0
+  // NOTE: winRate (overall) now counts PARTIAL as a win (TP1 banked = setup won).
+  // For expectancy R-math we use only fully-closed trades (SUCCESS/FAILED) since
+  // PARTIAL's trailing 30% hasn't resolved yet. Blend: win% from overall (incl.
+  // PARTIAL), R from closed pool.
+  const closedWinPct = overall.total > 0 ? (overall.wins / overall.total) : 0;
+  const closedLossPct = overall.total > 0 ? (overall.losses / overall.total) : 0;
   const expectancy = overall.total > 0
     ? parseFloat((
-        (overall.wins / overall.total * (rrAnalysis.avgTheoreticalRR || 1.5)) -
-        (overall.losses / overall.total * 1.0)
+        (closedWinPct * (rrAnalysis.avgTheoreticalRR || 1.5)) -
+        (closedLossPct * 1.0)
       ).toFixed(3))
     : null;
 

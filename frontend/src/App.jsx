@@ -950,6 +950,7 @@ export default function App() {
   const winCount = G.filter(tCard => tCard.status === 'SUCCESS').length;
   const failCount = G.filter(tCard => tCard.status === 'FAILED').length;
   const activeCount = G.filter(tCard => tCard.status === 'ACTIVE').length;
+  const partialCount = G.filter(tCard => tCard.status === 'PARTIAL').length;
   const pendingCount = G.filter(tCard => tCard.status === 'PENDING').length;
   const expiredCount = G.filter(tCard => tCard.status === 'EXPIRED').length;
   const computedWinRate = (winCount + failCount) > 0 ? ((winCount / (winCount + failCount)) * 100).toFixed(1) : '0';
@@ -1256,6 +1257,7 @@ export default function App() {
             {[
               { id: 'ALL', label: 'ALL', count: totalTradesCount, color: '#e2e8f0' },
               { id: 'SUCCESS', label: 'SUCCESS', count: winCount, color: '#10b981' },
+              { id: 'PARTIAL', label: 'PARTIAL', count: partialCount, color: '#8b5cf6' },
               { id: 'FAILED', label: 'FAILED', count: failCount, color: '#ef4444' },
               { id: 'ACTIVE', label: 'ACTIVE', count: activeCount, color: '#06b6d4' },
               { id: 'PENDING', label: 'PENDING', count: pendingCount, color: '#fbbf24' },
@@ -1324,6 +1326,7 @@ export default function App() {
                     className={`history-card-updated ${isExpanded ? 'expanded' : ''} ${
                       card.status === 'SUCCESS' ? 'success-border' :
                       card.status === 'FAILED' ? 'failed-border' :
+                      card.status === 'PARTIAL' ? 'partial-border' :
                       card.status === 'ACTIVE' ? 'active-border' :
                       card.status === 'EXPIRED' ? 'expired-border' : 'pending-border'
                     }`}
@@ -1343,7 +1346,7 @@ export default function App() {
                         <span
                           className="h-status-badge"
                           style={{
-                            backgroundColor: card.status === 'SUCCESS' ? '#10b981' : card.status === 'FAILED' ? '#ef4444' : card.status === 'ACTIVE' ? '#06b6d4' : '#fbbf24'
+                            backgroundColor: card.status === 'SUCCESS' ? '#10b981' : card.status === 'FAILED' ? '#ef4444' : card.status === 'PARTIAL' ? '#8b5cf6' : card.status === 'ACTIVE' ? '#06b6d4' : '#fbbf24'
                           }}
                         >
                           {card.status}
