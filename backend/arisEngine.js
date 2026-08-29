@@ -686,7 +686,7 @@ function detectOrderBlock(opens, highs, lows, closes, lookback = 20) {
   return ob;
 }
 
-function calculateExecutionSetup({
+export function calculateExecutionSetup({
   swingHigh, swingLow, swingHighIndex = null, swingLowIndex = null, currentPrice, highs, lows, opens, closes,
   regime, squeezeState, cvdBias, whaleWalls = [], absorption = null, smTrap = { type: 'NONE', low: null, high: null }, forceDirection = null
 }) {
@@ -713,6 +713,29 @@ function calculateExecutionSetup({
     isUpward = currentPrice > (swingHigh + swingLow) / 2; // fallback
   }
   const atr = computeATR(highs, lows, closes, 14);
+
+  // ── Volatility-aware caps on TP/SL distance ───────────────────────────
+  // Prevents absurd targets (e.g. FETUSDT TP2 +30%) when a structural swing
+  // is far from price. Caps are the tighter of an absolute % and an ATR multiple
+  // so low-vol assets (BTC in range) get tight targets, high-vol (meme) looser.
+  const atrPct = (atr / currentPrice) * 100;
+  const TP1_CAP = Math.min(4, 2.5 * atrPct);   // % max distance entry→TP1
+  const TP2_CAP = Math.min(8, 4 * atrPct);     // % max distance entry→TP2
+  const SL_CAP  = Math.min(3, 1.5 * atrPct);   // % max distance entry→SL
+  const capTargets = (direction, entryPrice, sl, tp1, tp2) => {
+    if (direction === 'LONG') {
+      return {
+        sl:  Math.max(sl, entryPrice * (1 - SL_CAP / 100)),
+        tp1: Math.min(tp1, entryPrice * (1 + TP1_CAP / 100)),
+        tp2: Math.min(tp2, entryPrice * (1 + TP2_CAP / 100)),
+      };
+    }
+    return {
+      sl:  Math.min(sl, entryPrice * (1 + SL_CAP / 100)),
+      tp1: Math.max(tp1, entryPrice * (1 - TP1_CAP / 100)),
+      tp2: Math.max(tp2, entryPrice * (1 - TP2_CAP / 100)),
+    };
+  };
 
   // Helper to format zone output
   // Dynamic decimal precision: tighter rounding for low-priced assets so the
@@ -766,13 +789,14 @@ function calculateExecutionSetup({
         ? tp1Raw
         : idealPrice + 1.5 * riskDist;
       const tp2 = Math.max(swingHigh + range * 0.618, idealPrice + 3.0 * riskDist);
+      const capped = capTargets('LONG', entry.price, sl, tp1, tp2);
       return {
         strategy: 'ALCHEMIC_REACTION',
         direction: 'LONG',
         entry,
-        sl,
-        tp1,
-        tp2,
+        sl: capped.sl,
+        tp1: capped.tp1,
+        tp2: capped.tp2,
         note: `🧪 ALCHEMIC REACTION (Bullish Sweep & Passive Limit Absorption detected at $${f(absorption.price)} with strength ${absorption.strength.toFixed(1)})`
       };
     } else if (absorption.type === 'SELL_ABSORPTION') {
@@ -791,13 +815,14 @@ function calculateExecutionSetup({
         ? tp1Raw
         : idealPrice - 1.5 * riskDist;
       const tp2 = Math.min(swingLow - range * 0.618, idealPrice - 3.0 * riskDist);
+      const capped = capTargets('SHORT', entry.price, sl, tp1, tp2);
       return {
         strategy: 'ALCHEMIC_REACTION',
         direction: 'SHORT',
         entry,
-        sl,
-        tp1,
-        tp2,
+        sl: capped.sl,
+        tp1: capped.tp1,
+        tp2: capped.tp2,
         note: `🧪 ALCHEMIC REACTION (Bearish Sweep & Passive Limit Absorption detected at $${f(absorption.price)} with strength ${absorption.strength.toFixed(1)})`
       };
     }
@@ -812,7 +837,8 @@ function calculateExecutionSetup({
       const sl = currentPrice - 1.5 * atr;
       const tp1 = currentPrice + 2.0 * atr;   // Min 1.33:1 R:R
       const tp2 = currentPrice + 4.0 * atr;   // Extended target
-      return { strategy: 'MOMENTUM_BREAKOUT', direction: 'LONG', entry, sl, tp1, tp2, note: '🚀 TRENDING MOMENTUM (Market Entry via ATR Breakout)' };
+      const capped = capTargets('LONG', currentPrice, sl, tp1, tp2);
+      return { strategy: 'MOMENTUM_BREAKOUT', direction: 'LONG', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: '🚀 TRENDING MOMENTUM (Market Entry via ATR Breakout)' };
     } else if (!isUpward && cvdBias === 'BEAR') {
       // Bearish Breakout SHORT
       const idealPrice = currentPrice;
@@ -820,7 +846,8 @@ function calculateExecutionSetup({
       const sl = currentPrice + 1.5 * atr;
       const tp1 = currentPrice - 2.0 * atr;   // Min 1.33:1 R:R
       const tp2 = currentPrice - 4.0 * atr;   // Extended target
-      return { strategy: 'MOMENTUM_BREAKOUT', direction: 'SHORT', entry, sl, tp1, tp2, note: '🚀 TRENDING MOMENTUM (Market Entry via ATR Breakout)' };
+      const capped = capTargets('SHORT', currentPrice, sl, tp1, tp2);
+      return { strategy: 'MOMENTUM_BREAKOUT', direction: 'SHORT', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: '🚀 TRENDING MOMENTUM (Market Entry via ATR Breakout)' };
     }
   }
 
@@ -845,7 +872,8 @@ function calculateExecutionSetup({
         const tp1Raw = swingHigh;
         const tp1 = (tp1Raw - idealPrice) >= (1.5 * riskDist) ? tp1Raw : idealPrice + 1.5 * riskDist;
         const tp2 = Math.max(swingHigh + range * 0.618, idealPrice + 3.0 * riskDist);
-        return { strategy: 'LIQUIDITY_SHIELD', direction: 'LONG', entry, sl, tp1, tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Bid Wall at $${f(closestWall.price)})` };
+        const capped = capTargets('LONG', entry.price, sl, tp1, tp2);
+        return { strategy: 'LIQUIDITY_SHIELD', direction: 'LONG', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Bid Wall at $${f(closestWall.price)})` };
       } else if (closestWall.side === 'ask' && !isUpward) {
         // Sell resistance shield (Short)
         const idealPrice = closestWall.price - tick;
@@ -855,7 +883,8 @@ function calculateExecutionSetup({
         const tp1Raw = swingLow;
         const tp1 = (idealPrice - tp1Raw) >= (1.5 * riskDist) ? tp1Raw : idealPrice - 1.5 * riskDist;
         const tp2 = Math.min(swingLow - range * 0.618, idealPrice - 3.0 * riskDist);
-        return { strategy: 'LIQUIDITY SHIELD', direction: 'SHORT', entry, sl, tp1, tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Ask Wall at $${f(closestWall.price)})` };
+        const capped = capTargets('SHORT', entry.price, sl, tp1, tp2);
+        return { strategy: 'LIQUIDITY_SHIELD', direction: 'SHORT', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Ask Wall at $${f(closestWall.price)})` };
       }
     }
   }
@@ -921,12 +950,13 @@ function calculateExecutionSetup({
       ? tp1Raw
       : idealPrice + 1.5 * riskDist;                     // enforce min 1.5:1 R:R
     const tp2 = Math.max(tp2Raw, idealPrice + 3.0 * riskDist); // enforce min 3:1 R:R
+    const capped = capTargets('LONG', entry.price, sl, tp1, tp2);
 
     const note = ob
       ? `📐 SMART OTE LONG (OB Demand Zone $${f(ob.low)}-$${f(ob.high)}${bidWall ? ` | Bid Wall $${f(bidWall.price)}` : ''})`
       : `📐 LOCAL OTE LONG (Micro Swing Fib 0.618-0.786${bidWall ? ` | Bid Wall $${f(bidWall.price)}` : ''})` ;
 
-    return { strategy: 'PULLBACK_OTE', direction: 'LONG', entry, sl, tp1, tp2, note };
+    return { strategy: 'PULLBACK_OTE', direction: 'LONG', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note };
   } else {
     const macroIdeal   = swingLow + range * 0.666;
     const localIdeal   = swingLow + localRange * 0.618;
@@ -966,12 +996,13 @@ function calculateExecutionSetup({
       ? tp1Raw
       : idealPrice - 1.5 * riskDist;                     // enforce min 1.5:1 R:R
     const tp2 = Math.min(tp2Raw, idealPrice - 3.0 * riskDist); // enforce min 3:1 R:R
+    const capped = capTargets('SHORT', entry.price, sl, tp1, tp2);
 
     const note = ob
       ? `📐 SMART OTE SHORT (OB Supply Zone $${f(ob.low)}-$${f(ob.high)}${askWall ? ` | Ask Wall $${f(askWall.price)}` : ''})`
       : `📐 LOCAL OTE SHORT (Micro Swing Fib 0.618-0.786${askWall ? ` | Ask Wall $${f(askWall.price)}` : ''})`;
 
-    return { strategy: 'PULLBACK_OTE', direction: 'SHORT', entry, sl, tp1, tp2, note };
+    return { strategy: 'PULLBACK_OTE', direction: 'SHORT', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note };
   }
 }
 
