@@ -421,9 +421,14 @@ Return ONLY valid JSON (no markdown, no extra text):
       const newSl = idealEntry * (1 + widenDir * (minSlPct / 100));
       scannerLog.warn({ symbol, scanId, oldSl: slVal, newSl, minSlPct }, 'Widening SL to minimum distance');
       ote.sl = newSl;
-      // Recompute dependent values with the widened SL
+      // Recompute TP1/TP2 so the widened SL does NOT break the 2.0:1 R:R floor.
+      // The engine already set TP1 >= 2xSL, but widening SL increases risk, so we
+      // must push TP1 out to keep R:R >= 2.0 (never ship <2.0 after a widen).
       const newRiskDist = Math.abs(idealEntry - newSl);
-      const newRr = newRiskDist > 0 ? rewardDist / newRiskDist : 0;
+      const tpSign = tradeDir === 'LONG' ? 1 : -1;
+      ote.tp1 = idealEntry + tpSign * 2.0 * newRiskDist;
+      ote.tp2 = idealEntry + tpSign * 3.0 * newRiskDist;
+      const newRr = newRiskDist > 0 ? Math.abs(ote.tp1 - idealEntry) / newRiskDist : 0;
       signalRr = newRr;
     }
 
