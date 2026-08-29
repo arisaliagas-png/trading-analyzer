@@ -169,6 +169,10 @@ async function fetchPrices(symbols) {
 // ─────────────────────────────────────────────
 // MAIN MONITOR LOOP
 // ─────────────────────────────────────────────
+// In-memory guard: IDs that already fired a post-mortem/win-review this session.
+// Prevents duplicate AI calls if the DB write hasn't committed before the next poll.
+const reviewedThisSession = new Set();
+
 export async function monitorTrades() {
   // Expire stale PENDING setups that never entered their zone (72h cutoff)
   try { await expireStalePending(); } catch (e) { trackerLog.error({ err: e.message }, 'expireStalePending error'); }
@@ -189,6 +193,9 @@ export async function monitorTrades() {
   const prices = await fetchPrices(uniqueSymbols);
 
   for (const trade of activeTrades) {
+    // Skip if we already resolved this trade (DB write may not have committed yet)
+    if (reviewedThisSession.has(trade.id)) continue;
+
     const currentPrice = prices[trade.instrument];
 
     // Record price sample if we have one (pruned to last 50). We do NOT skip
@@ -249,6 +256,7 @@ export async function monitorTrades() {
           ? (isLong ? (currentPrice >= trade.tp2 - tp2Band) : (currentPrice <= trade.tp2 + tp2Band))
           : false) || hitFromHistory(trade.tp2, tp2Band);
         if (hitTp2) {
+          reviewedThisSession.add(trade.id);
           await updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
           await removeSignalByInstrument(trade.instrument);
           onTradeClosed('SUCCESS');
@@ -256,6 +264,7 @@ export async function monitorTrades() {
           triggerWinReview(trade, currentPrice).catch(e => trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review failed'));
         } else if (hitSl) {
           // Breakeven SL hit: 70% already won at TP1, 30% exited at breakeven → net win.
+          reviewedThisSession.add(trade.id);
           await updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
           await removeSignalByInstrument(trade.instrument);
           onTradeClosed('SUCCESS');
@@ -273,7 +282,10 @@ export async function monitorTrades() {
         triggerWinReview(trade, currentPrice).catch(e => trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review failed'));
 
       } else if (hitSl) {
-        await updateTradeStatus(trade.id, 'FAILED', currentPrice, trade.entry_price);
+        // SL hit: record exit at the SL price (not the live price spike) for correct R.
+        reviewedThisSession.add(trade.id);
+        const slPrice = trade.sl;
+        await updateTradeStatus(trade.id, 'FAILED', slPrice, trade.entry_price);
         await removeSignalByInstrument(trade.instrument);
         onTradeClosed('FAILED');
         trackerLog.warn({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '❌ Trade hit STOP LOSS');
