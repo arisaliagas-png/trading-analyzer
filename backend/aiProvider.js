@@ -534,11 +534,15 @@ export async function analyzeChart(imageBuffer, mimeType, pair = '', timeframe =
   // Analyzer always uses a vision-capable provider (Gemini/Anthropic).
   // OpenRouter free models do not support image inputs, so we NEVER use
   // openrouter here even if AI_PROVIDER is set to it (that is only for text chat).
-  let provider = forceProvider && forceProvider !== 'openrouter'
+  // Force anthropic/gemini regardless of AI_PROVIDER(openrouter).
+  let provider = (forceProvider && forceProvider !== 'openrouter')
     ? forceProvider
     : (process.env.AI_PROVIDER && process.env.AI_PROVIDER !== 'openrouter'
         ? process.env.AI_PROVIDER
         : 'anthropic');
+  // Hard override: if the resolved provider is still openrouter (e.g. misconfig),
+  // fall back to anthropic so scanning never breaks.
+  if (provider === 'openrouter') provider = 'anthropic';
   // Prefer a provider whose key actually exists; fall back to whichever is available
   if (provider === 'gemini' && !process.env.GEMINI_API_KEY && process.env.ANTHROPIC_API_KEY) provider = 'anthropic';
   if (provider === 'anthropic' && !process.env.ANTHROPIC_API_KEY && process.env.GEMINI_API_KEY) provider = 'gemini';
