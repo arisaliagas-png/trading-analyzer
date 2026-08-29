@@ -210,7 +210,7 @@ const stmts = {
 
   getById:          db.prepare(`SELECT * FROM trades WHERE id = ?`),
   getByInstrument:  db.prepare(`SELECT * FROM trades WHERE instrument = ? ORDER BY created_at DESC`),
-  getActivePending: db.prepare(`SELECT * FROM trades WHERE status IN ('ACTIVE','PENDING')`),
+  getActivePending: db.prepare(`SELECT * FROM trades WHERE status IN ('ACTIVE','PENDING','PARTIAL')`),
   getAll:           db.prepare(`SELECT * FROM trades ORDER BY created_at DESC`),
   getPriceHistory:  db.prepare(`SELECT price, sampled_at FROM price_history WHERE trade_id = ? ORDER BY id ASC`),
   getLessons:       db.prepare(`SELECT * FROM lessons WHERE instrument = ? AND direction = ? ORDER BY created_at DESC LIMIT 3`),
@@ -317,7 +317,13 @@ export function upsertSignal(signal) {
  * Update trade status. Used by tradeTracker when price hits SL or TP.
  * Pass closePrice (the price at closure) for SUCCESS/FAILED trades so PnL is exact.
  */
-export function updateTradeStatus(id, status, closePrice = null, entryPrice = null) {
+export function updateTradeStatus(id, status, closePrice = null, entryPrice = null, newSl = null) {
+  if (status === 'PARTIAL') {
+    // Partial-close: trade stays open, SL moves to breakeven (passed as newSl).
+    // 70% of position closed at TP1; remaining 30% trails to TP2 with BE stop.
+    db.prepare(`UPDATE trades SET status = 'PARTIAL', sl = @sl WHERE id = @id`).run({ id, sl: newSl });
+    return;
+  }
   stmts.updateStatus.run({
     id,
     status,

@@ -241,17 +241,36 @@ export async function monitorTrades() {
         ? (isLong ? (currentPrice <= trade.sl + slBand) : (currentPrice >= trade.sl - slBand))
         : false) || hitFromHistory(trade.sl, slBand);
 
-      if (hitTp1) {
-        await updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
-        await removeSignalByInstrument(trade.instrument);
-        onTradeClosed('SUCCESS');
-        trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '🎯 Trade hit TAKE PROFIT');
-
-        // Win review: if the realized R fell short of the planned R by a
-        // meaningful margin, learn why we left R on the table.
-        triggerWinReview(trade, currentPrice).catch(e =>
-          trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review failed')
-        );
+      if (trade.status === 'PARTIAL') {
+        // Already partial-closed: 70% banked at TP1, SL moved to breakeven.
+        // Now watching for TP2 (full win) or breakeven SL (still a win on net).
+        const tp2Band = trade.tp2 * WICK_TOL;
+        const hitTp2 = (currentPrice
+          ? (isLong ? (currentPrice >= trade.tp2 - tp2Band) : (currentPrice <= trade.tp2 + tp2Band))
+          : false) || hitFromHistory(trade.tp2, tp2Band);
+        if (hitTp2) {
+          await updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
+          await removeSignalByInstrument(trade.instrument);
+          onTradeClosed('SUCCESS');
+          trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '🎯 PARTIAL trade hit TP2 — full SUCCESS (70%@TP1 + 30%@TP2)');
+          triggerWinReview(trade, currentPrice).catch(e => trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review failed'));
+        } else if (hitSl) {
+          // Breakeven SL hit: 70% already won at TP1, 30% exited at breakeven → net win.
+          await updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
+          await removeSignalByInstrument(trade.instrument);
+          onTradeClosed('SUCCESS');
+          trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '✅ PARTIAL trade hit breakeven SL — net WIN (70% banked @TP1)');
+          triggerWinReview(trade, currentPrice).catch(e => trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review failed'));
+        }
+      } else if (hitTp1) {
+        // First TP1 hit: close 70% at TP1, move SL to breakeven, trail 30% to TP2.
+        const entryPrice = trade.entry_price ?? trade.entryPrice;
+        const beSl = entryPrice; // breakeven stop for the remaining 30%
+        await updateTradeStatus(trade.id, 'PARTIAL', currentPrice, entryPrice, beSl);
+        trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '🔪 PARTIAL CLOSE: 70% @TP1, SL→breakeven, 30% trails to TP2');
+        // Keep the signal alive (don't removeSignal) — still monitoring for TP2/BE.
+        // Win review for the banked 70% portion:
+        triggerWinReview(trade, currentPrice).catch(e => trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review failed'));
 
       } else if (hitSl) {
         await updateTradeStatus(trade.id, 'FAILED', currentPrice, trade.entry_price);

@@ -142,7 +142,15 @@ export async function upsertSignal(signal) {
   }
 }
 
-export async function updateTradeStatus(id, status, closePrice = null, entryPrice = null) {
+export async function updateTradeStatus(id, status, closePrice = null, entryPrice = null, newSl = null) {
+  if (status === 'PARTIAL') {
+    // Partial-close: trade stays open, SL moves to breakeven (passed as newSl).
+    const { error } = await (await client()).from('trades').update({
+      status: 'PARTIAL', sl: newSl
+    }).eq('id', id);
+    if (error) dbLog.error({ err: error.message }, 'Supabase updateTradeStatus(PARTIAL) failed');
+    return;
+  }
   const closed_at = (status === 'SUCCESS' || status === 'FAILED') ? new Date().toISOString() : null;
   const { error } = await (await client()).from('trades').update({
     status,
@@ -222,7 +230,7 @@ export async function clearIsNew(id) {
 
 // ── reads ────────────────────────────────────────────────────────────────────
 export async function getActiveTrades() {
-  const { data, error } = await (await client()).from('trades').select('*').in('status', ['ACTIVE', 'PENDING']);
+  const { data, error } = await (await client()).from('trades').select('*').in('status', ['ACTIVE', 'PENDING', 'PARTIAL']);
   if (error) { dbLog.error({ err: error.message }, 'Supabase getActiveTrades failed'); return []; }
   return (data || []).map(hydrate);
 }
