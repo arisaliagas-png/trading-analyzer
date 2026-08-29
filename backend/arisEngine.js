@@ -723,16 +723,20 @@ export function calculateExecutionSetup({
   const TP2_CAP = Math.min(8, 4 * atrPct);     // % max distance entry→TP2
   const SL_CAP  = Math.min(3, 1.5 * atrPct);   // % max distance entry→SL
   const capTargets = (direction, entryPrice, slFloor, slCeil, sl, tp1, tp2) => {
+    // Hard floor: TP1 must stay at least 2.0x the SL risk away from entry.
+    // The volatility caps above may clip a small structural TP1, but we never
+    // ship a setup with R:R < 2.0 (backtest edge is ~2.4R).
+    const minTp1Dist = Math.abs(entryPrice - sl) * 2.0;
     if (direction === 'LONG') {
       return {
         sl:  Math.min(Math.max(sl, slFloor), entryPrice * (1 + SL_CAP / 100)),
-        tp1: Math.min(tp1, entryPrice * (1 + TP1_CAP / 100)),
+        tp1: Math.min(Math.max(tp1, entryPrice + minTp1Dist), entryPrice * (1 + TP1_CAP / 100)),
         tp2: Math.min(tp2, entryPrice * (1 + TP2_CAP / 100)),
       };
     }
     return {
       sl:  Math.max(Math.min(sl, slCeil), entryPrice * (1 - SL_CAP / 100)),
-      tp1: Math.max(tp1, entryPrice * (1 - TP1_CAP / 100)),
+      tp1: Math.max(Math.min(tp1, entryPrice - minTp1Dist), entryPrice * (1 - TP1_CAP / 100)),
       tp2: Math.max(tp2, entryPrice * (1 - TP2_CAP / 100)),
     };
   };
@@ -950,11 +954,12 @@ export function calculateExecutionSetup({
     const tp2Raw = swingHigh + range * 0.618;
 
     // ── Minimum R:R guard ─────────────────────────────────────────────
-    // If TP1 is not at least 1.5x the SL risk away from ideal entry, extend it
+    // If TP1 is not at least 2.0x the SL risk away from ideal entry, extend it
+    // so the setup keeps a viable R:R (backtest edge is ~2.4R; never ship <2.0).
     const riskDist = idealPrice - sl;
-    const tp1 = (tp1Raw - idealPrice) >= (1.5 * riskDist)
+    const tp1 = (tp1Raw - idealPrice) >= (2.0 * riskDist)
       ? tp1Raw
-      : idealPrice + 1.5 * riskDist;                     // enforce min 1.5:1 R:R
+      : idealPrice + 2.0 * riskDist;                     // enforce min 2.0:1 R:R
     const tp2 = idealPrice + 1.5 * (tp1 - idealPrice); // TP2 = TP1 + 50% extension (realistic, hittable)
     const capped = capTargets('LONG', entry.price, entry.low * 0.998, null, sl, tp1, tp2);
 
@@ -1004,9 +1009,9 @@ export function calculateExecutionSetup({
 
     // ── Minimum R:R guard ─────────────────────────────────────────────
     const riskDist = sl - idealPrice;
-    const tp1 = (idealPrice - tp1Raw) >= (1.5 * riskDist)
+    const tp1 = (idealPrice - tp1Raw) >= (2.0 * riskDist)
       ? tp1Raw
-      : idealPrice - 1.5 * riskDist;                     // enforce min 1.5:1 R:R
+      : idealPrice - 2.0 * riskDist;                     // enforce min 2.0:1 R:R
     const tp2 = idealPrice - 1.5 * (idealPrice - tp1); // TP2 = TP1 - 50% extension (realistic, hittable)
     const capped = capTargets('SHORT', entry.price, null, entry.high * 1.002, sl, tp1, tp2);
 
