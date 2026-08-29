@@ -244,6 +244,15 @@ export function registerTrade(setup) {
 
   if (!direction) return;
 
+  // GUARD: do not overwrite an in-flight trade (ACTIVE/PARTIAL/SUCCESS) with a
+  // fresh scan result. A new scan re-emitting the same symbol+direction must not
+  // clobber a trade that already entered its zone or banked TP1.
+  const existing = db.prepare('SELECT status FROM trades WHERE id = ?').get(setup.id);
+  if (existing && ['ACTIVE', 'PARTIAL', 'SUCCESS'].includes(existing.status)) {
+    dbLog.info({ id: setup.id, existingStatus: existing.status }, 'registerTrade skipped — live trade in flight, not overwriting');
+    return;
+  }
+
   stmts.insertTrade.run({
     id:                setup.id,
     instrument:        setup.instrument,

@@ -95,6 +95,18 @@ export async function registerTrade(setup) {
   const direction = setup.direction ? setup.direction :
     setup.bias === 'bullish' ? 'LONG' : setup.bias === 'bearish' ? 'SHORT' : null;
   if (!direction) return;
+
+  // GUARD: do not overwrite an in-flight trade (ACTIVE/PARTIAL/SUCCESS) with a
+  // fresh scan result. A new scan re-emitting the same symbol+direction must not
+  // clobber a trade that already entered its zone or banked TP1.
+  // Only allow update if the existing row is PENDING/EXPIRED/FAILED (i.e. not live).
+  const { data: existing } = await (await client()).from('trades')
+    .select('status').eq('id', setup.id).maybeSingle();
+  if (existing && ['ACTIVE', 'PARTIAL', 'SUCCESS'].includes(existing.status)) {
+    dbLog.info({ id: setup.id, existingStatus: existing.status }, 'registerTrade skipped — live trade in flight, not overwriting');
+    return;
+  }
+
   const { error } = await (await client()).from('trades').upsert({
     id: setup.id, instrument: setup.instrument, timeframe: setup.timeframe || null,
     direction, entry_low: setup.entry.low ?? null, entry_high: setup.entry.high ?? null,
