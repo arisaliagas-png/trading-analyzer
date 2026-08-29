@@ -53,3 +53,6 @@ backend/live_pine_strict_scan_run.mjs
 backend/pine_scan_run.mjs
 backend/pine_strict_scan_run.mjs
 backend/SCAN_RUN_*.md
+
+# Local backup copies (e.g. arisEngine.js.bak-<timestamp> created before edits for rollback)
+*.bak*

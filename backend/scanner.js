@@ -252,6 +252,12 @@ async function scanAsset(symbol, scanId, macro = null) {
 
     const engine = ind.aris;
 
+    // Order-book confluence bonus — declared early (computed later in block 4f) so it
+    // is available to the AI-verification confidence adjustment at line ~353 without
+    // hitting a temporal-dead-zone error.
+    let obConfluence = 0;
+    let obNote = null;
+
     const hasSetup = engine.executionStrategy &&
                      engine.executionStrategy !== 'WAIT' &&
                      engine.executionStrategy !== 'NO_SETUP' &&
@@ -526,8 +532,9 @@ Return ONLY valid JSON (no markdown, no extra text):
     // Uses stableWhaleWalls (persisted >threshold = real, not spoofing).
     // A wall on the "right" side of price confirms the SMC level; a wall inside
     // or near the OTE zone is a strong confluence signal. Adds bonus points.
-    let obConfluence = 0;
-    let obNote = null;
+    // (obConfluence / obNote are declared earlier in this function.)
+    obConfluence = 0;
+    obNote = null;
     try {
       const snap = aggregator.getSnapshot();
       const walls = snap.stableWhaleWalls || [];

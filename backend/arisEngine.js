@@ -1038,7 +1038,9 @@ function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfi
   // 25 binary conditions (scored for the LONG direction; inverse for SHORT)
   const conds = [
     // UFO Fusion block (6 signals → 6 pts)
-    ufoNorm > 33 ? 1 : 0,          // UFO Fusion strongly bullish
+    // "strongly bullish" tier is magnitude-scaled: +33 reads ~0, +100 reads full +1
+    // (instead of a blunt on/off at the 33 line).
+    ufoNorm != null ? Math.round(gradeSignal(ufoNorm, 33, 100, 1) * 100) / 100 : 0,
     ufoNorm > 0 ? 1 : 0,           // UFO Fusion mildly bullish
 
     // WaveTrend (2 pts)
@@ -1067,8 +1069,9 @@ function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfi
     // FP Delta (1 pt)
     fpBias === 1 ? 1 : 0,
 
-    // Z-Score (1 pt — oversold range = potential long entry)
-    zScore != null && zScore < -0.5 && zScore > -2.5 ? 1 : 0,
+    // Z-Score (1 pt — oversold range = potential long entry). Magnitude-scaled:
+    // z=-2.5 (deep oversold) scores full +1, z=-0.5 (barely) scores ~0.
+    zScore != null ? Math.round(gradeSignal(-zScore, 0.5, 2.5, 1) * 100) / 100 : 0,
 
     // Volume Engine (1 pt)
     relVol != null && relVol.signal !== 'LOW' ? 1 : 0,
@@ -1108,7 +1111,8 @@ function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfi
   const longScore = conds.reduce((a, b) => a + b, 0); // Bull conditions satisfied
   // SHORT score: inverse logic (how many of 25 are BEARISH)
   const bearConds = [
-    ufoNorm < -33 ? 1 : 0,
+    // UFO Fusion block (SHORT) — "strongly bearish" tier magnitude-scaled via -ufoNorm
+    ufoNorm != null ? Math.round(gradeSignal(-ufoNorm, 33, 100, 1) * 100) / 100 : 0,
     ufoNorm < 0 ? 1 : 0,
     wt1Last != null && wt1Last < 0 ? 1 : 0,
     wt1Last != null && wt1Last < -20 ? 1 : 0,
@@ -1122,7 +1126,9 @@ function computeMegaScore({ ufScore, ufoNorm, hybridLast, wt1Last, macdHist, mfi
     cvdBias === 'BEAR' ? 1 : 0,
     cvdBias === 'BEAR' && fpBias === -1 ? 1 : 0,
     fpBias === -1 ? 1 : 0,
-    zScore != null && zScore > 0.5 && zScore < 2.5 ? 1 : 0,
+    // Z-Score (1 pt SHORT — overbought range = potential short entry). Magnitude-scaled:
+    // z=+2.5 (deep overbought) scores full +1, z=+0.5 (barely) scores ~0.
+    zScore != null ? Math.round(gradeSignal(zScore, 0.5, 2.5, 1) * 100) / 100 : 0,
     relVol != null && relVol.signal !== 'LOW' ? 1 : 0,
     adxVal != null && adxVal > 20 ? 1 : 0,
     chop != null && chop < 61.8 ? 1 : 0,
