@@ -722,16 +722,16 @@ export function calculateExecutionSetup({
   const TP1_CAP = Math.min(4, 2.5 * atrPct);   // % max distance entry→TP1
   const TP2_CAP = Math.min(8, 4 * atrPct);     // % max distance entry→TP2
   const SL_CAP  = Math.min(3, 1.5 * atrPct);   // % max distance entry→SL
-  const capTargets = (direction, entryPrice, sl, tp1, tp2) => {
+  const capTargets = (direction, entryPrice, slFloor, slCeil, sl, tp1, tp2) => {
     if (direction === 'LONG') {
       return {
-        sl:  Math.max(sl, entryPrice * (1 - SL_CAP / 100)),
+        sl:  Math.min(Math.max(sl, slFloor), entryPrice * (1 + SL_CAP / 100)),
         tp1: Math.min(tp1, entryPrice * (1 + TP1_CAP / 100)),
         tp2: Math.min(tp2, entryPrice * (1 + TP2_CAP / 100)),
       };
     }
     return {
-      sl:  Math.min(sl, entryPrice * (1 + SL_CAP / 100)),
+      sl:  Math.max(Math.min(sl, slCeil), entryPrice * (1 - SL_CAP / 100)),
       tp1: Math.max(tp1, entryPrice * (1 - TP1_CAP / 100)),
       tp2: Math.max(tp2, entryPrice * (1 - TP2_CAP / 100)),
     };
@@ -789,7 +789,7 @@ export function calculateExecutionSetup({
         ? tp1Raw
         : idealPrice + 1.5 * riskDist;
       const tp2 = Math.max(swingHigh + range * 0.618, idealPrice + 3.0 * riskDist);
-      const capped = capTargets('LONG', entry.price, sl, tp1, tp2);
+      const capped = capTargets('LONG', entry.price, entry.low * 0.998, null, sl, tp1, tp2);
       return {
         strategy: 'ALCHEMIC_REACTION',
         direction: 'LONG',
@@ -815,7 +815,7 @@ export function calculateExecutionSetup({
         ? tp1Raw
         : idealPrice - 1.5 * riskDist;
       const tp2 = Math.min(swingLow - range * 0.618, idealPrice - 3.0 * riskDist);
-      const capped = capTargets('SHORT', entry.price, sl, tp1, tp2);
+      const capped = capTargets('SHORT', entry.price, null, entry.high * 1.002, sl, tp1, tp2);
       return {
         strategy: 'ALCHEMIC_REACTION',
         direction: 'SHORT',
@@ -837,7 +837,7 @@ export function calculateExecutionSetup({
       const sl = currentPrice - 1.5 * atr;
       const tp1 = currentPrice + 2.0 * atr;   // Min 1.33:1 R:R
       const tp2 = currentPrice + 4.0 * atr;   // Extended target
-      const capped = capTargets('LONG', currentPrice, sl, tp1, tp2);
+      const capped = capTargets('LONG', entry.price, entry.low * 0.998, null, sl, tp1, tp2);
       return { strategy: 'MOMENTUM_BREAKOUT', direction: 'LONG', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: '🚀 TRENDING MOMENTUM (Market Entry via ATR Breakout)' };
     } else if (!isUpward && cvdBias === 'BEAR') {
       // Bearish Breakout SHORT
@@ -846,7 +846,7 @@ export function calculateExecutionSetup({
       const sl = currentPrice + 1.5 * atr;
       const tp1 = currentPrice - 2.0 * atr;   // Min 1.33:1 R:R
       const tp2 = currentPrice - 4.0 * atr;   // Extended target
-      const capped = capTargets('SHORT', currentPrice, sl, tp1, tp2);
+      const capped = capTargets('SHORT', entry.price, null, entry.high * 1.002, sl, tp1, tp2);
       return { strategy: 'MOMENTUM_BREAKOUT', direction: 'SHORT', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: '🚀 TRENDING MOMENTUM (Market Entry via ATR Breakout)' };
     }
   }
@@ -872,7 +872,7 @@ export function calculateExecutionSetup({
         const tp1Raw = swingHigh;
         const tp1 = (tp1Raw - idealPrice) >= (1.5 * riskDist) ? tp1Raw : idealPrice + 1.5 * riskDist;
         const tp2 = Math.max(swingHigh + range * 0.618, idealPrice + 3.0 * riskDist);
-        const capped = capTargets('LONG', entry.price, sl, tp1, tp2);
+        const capped = capTargets('LONG', entry.price, entry.low * 0.998, null, sl, tp1, tp2);
         return { strategy: 'LIQUIDITY_SHIELD', direction: 'LONG', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Bid Wall at $${f(closestWall.price)})` };
       } else if (closestWall.side === 'ask' && !isUpward) {
         // Sell resistance shield (Short)
@@ -883,7 +883,7 @@ export function calculateExecutionSetup({
         const tp1Raw = swingLow;
         const tp1 = (idealPrice - tp1Raw) >= (1.5 * riskDist) ? tp1Raw : idealPrice - 1.5 * riskDist;
         const tp2 = Math.min(swingLow - range * 0.618, idealPrice - 3.0 * riskDist);
-        const capped = capTargets('SHORT', entry.price, sl, tp1, tp2);
+        const capped = capTargets('SHORT', entry.price, null, entry.high * 1.002, sl, tp1, tp2);
         return { strategy: 'LIQUIDITY_SHIELD', direction: 'SHORT', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Ask Wall at $${f(closestWall.price)})` };
       }
     }
@@ -939,9 +939,15 @@ export function calculateExecutionSetup({
       sl = minLongSl;
     }
 
+    const entry = formatZone(idealPrice, zoneLow, zoneHigh);
+
+    // Hard constraint: SL must be BELOW the entry zone for LONG (never inside it)
+    if (sl >= entry.low) {
+      sl = entry.low * 0.998;
+    }
+
     const tp1Raw = swingHigh;
     const tp2Raw = swingHigh + range * 0.618;
-    const entry = formatZone(idealPrice, zoneLow, zoneHigh);
 
     // ── Minimum R:R guard ─────────────────────────────────────────────
     // If TP1 is not at least 1.5x the SL risk away from ideal entry, extend it
@@ -950,7 +956,7 @@ export function calculateExecutionSetup({
       ? tp1Raw
       : idealPrice + 1.5 * riskDist;                     // enforce min 1.5:1 R:R
     const tp2 = Math.max(tp2Raw, idealPrice + 3.0 * riskDist); // enforce min 3:1 R:R
-    const capped = capTargets('LONG', entry.price, sl, tp1, tp2);
+    const capped = capTargets('LONG', entry.price, entry.low * 0.998, null, sl, tp1, tp2);
 
     const note = ob
       ? `📐 SMART OTE LONG (OB Demand Zone $${f(ob.low)}-$${f(ob.high)}${bidWall ? ` | Bid Wall $${f(bidWall.price)}` : ''})`
@@ -986,9 +992,15 @@ export function calculateExecutionSetup({
       sl = minShortSl;
     }
 
+    const entry = formatZone(idealPrice, zoneLow, zoneHigh);
+
+    // Hard constraint: SL must be ABOVE the entry zone for SHORT (never inside it)
+    if (sl <= entry.high) {
+      sl = entry.high * 1.002;
+    }
+
     const tp1Raw = swingLow;
     const tp2Raw = swingLow - range * 0.618;
-    const entry = formatZone(idealPrice, zoneLow, zoneHigh);
 
     // ── Minimum R:R guard ─────────────────────────────────────────────
     const riskDist = sl - idealPrice;
@@ -996,7 +1008,7 @@ export function calculateExecutionSetup({
       ? tp1Raw
       : idealPrice - 1.5 * riskDist;                     // enforce min 1.5:1 R:R
     const tp2 = Math.min(tp2Raw, idealPrice - 3.0 * riskDist); // enforce min 3:1 R:R
-    const capped = capTargets('SHORT', entry.price, sl, tp1, tp2);
+    const capped = capTargets('SHORT', entry.price, null, entry.high * 1.002, sl, tp1, tp2);
 
     const note = ob
       ? `📐 SMART OTE SHORT (OB Supply Zone $${f(ob.low)}-$${f(ob.high)}${askWall ? ` | Ask Wall $${f(askWall.price)}` : ''})`
