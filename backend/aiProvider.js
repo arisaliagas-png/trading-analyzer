@@ -696,14 +696,14 @@ Follow system instructions and output the JSON result.
 
   if (hints === 'POST_MORTEM_OVERRIDE') {
     // Post-mortem: text-only, AI diagnoses a trade failure and produces lesson
-    return callAI(TEXT_JSON_SYSTEM_PROMPT, userPrompt, null, null, forceProvider, 'POST_MORTEM_OVERRIDE');
+    return callAI(TEXT_JSON_SYSTEM_PROMPT, userPrompt, null, null, provider, 'POST_MORTEM_OVERRIDE');
   }
 
   if (hints === 'SCANNER_VERIFY') {
     // Scanner verification: text-only, AI verifies a scan candidate setup
     // Uses TEXT_JSON_SYSTEM_PROMPT so the caller's task prompt+schema isn't overridden
     // Validates against ScannerVerifySchema (setupStatus, confidenceGrade, confidencePct, reasoning)
-    return callAI(TEXT_JSON_SYSTEM_PROMPT, userPrompt, null, null, forceProvider, 'SCANNER_VERIFY');
+    return callAI(TEXT_JSON_SYSTEM_PROMPT, userPrompt, null, null, provider, 'SCANNER_VERIFY');
   }
 
   console.log('=== FULL PROMPT SENT TO AI ===');
