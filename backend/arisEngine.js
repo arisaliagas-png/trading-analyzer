@@ -727,17 +727,21 @@ export function calculateExecutionSetup({
     // The volatility caps above may clip a small structural TP1, but we never
     // ship a setup with R:R < 2.0 (backtest edge is ~2.4R).
     const minTp1Dist = Math.abs(entryPrice - sl) * 2.0;
+    // Order matters: first clamp TP to the volatility cap (so we never ship an
+    // absurd structural target), THEN enforce the 2.0x-SL floor. The previous
+    // code applied floor-then-cap, which let a tight TP1_CAP clip the floor and
+    // ship R:R < 2.0. Floor must WIN.
     if (direction === 'LONG') {
       return {
         sl:  Math.min(Math.max(sl, slFloor), entryPrice * (1 + SL_CAP / 100)),
-        tp1: Math.min(Math.max(tp1, entryPrice + minTp1Dist), entryPrice * (1 + TP1_CAP / 100)),
-        tp2: Math.min(tp2, entryPrice * (1 + TP2_CAP / 100)),
+        tp1: Math.max(Math.min(tp1, entryPrice * (1 + TP1_CAP / 100)), entryPrice + minTp1Dist),
+        tp2: Math.max(Math.min(tp2, entryPrice * (1 + TP2_CAP / 100)), entryPrice + minTp1Dist * 1.5),
       };
     }
     return {
       sl:  Math.max(Math.min(sl, slCeil), entryPrice * (1 - SL_CAP / 100)),
-      tp1: Math.max(Math.min(tp1, entryPrice - minTp1Dist), entryPrice * (1 - TP1_CAP / 100)),
-      tp2: Math.max(tp2, entryPrice * (1 - TP2_CAP / 100)),
+      tp1: Math.max(Math.min(tp1, entryPrice * (1 - TP1_CAP / 100)), entryPrice - minTp1Dist),
+      tp2: Math.max(Math.min(tp2, entryPrice * (1 - TP2_CAP / 100)), entryPrice - minTp1Dist * 1.5),
     };
   };
 
