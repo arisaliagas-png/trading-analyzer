@@ -223,6 +223,26 @@ export async function monitorTrades() {
       if (enteredZone) {
         await markEnteredZone(trade.id, currentPrice);
         trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, 'Trade now ACTIVE');
+      } else if (currentPrice) {
+        // ── Distance-based invalidation ───────────────────────────────────────
+        // If price has moved AWAY from the entry zone (against the intended
+        // direction), the setup is stale/dead — the market moved opposite to the
+        // thesis. Cancel it so stale PENDINGs don't clog the board.
+        // SHORT: price fell below entryLow → thesis invalid (should have rallied into zone)
+        // LONG:  price rose above entryHigh → thesis invalid (should have dipped into zone)
+        const entryMid = (trade.entryLow + trade.entryHigh) / 2;
+        const distPct = Math.abs(currentPrice - entryMid) / entryMid * 100;
+        const movedAway = isLong
+          ? (currentPrice > trade.entryHigh)   // LONG but price rallied past zone
+          : (currentPrice < trade.entryLow);   // SHORT but price dropped below zone
+        const MAX_PENDING_DIST = 5; // % away from zone before we call it dead
+
+        if (movedAway && distPct > MAX_PENDING_DIST) {
+          await updateTradeStatus(trade.id, 'EXPIRED', null, trade.entry_price);
+          await removeSignalByInstrument(trade.instrument);
+          onTradeClosed('EXPIRED');
+          trackerLog.warn({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice, distPct: distPct.toFixed(2) }, '⚠️ PENDING setup invalidated — price moved away from zone (thesis dead)');
+        }
       }
 
     } else if (trade.status === 'ACTIVE') {

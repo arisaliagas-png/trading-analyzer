@@ -33,7 +33,7 @@ async function client() {
   return _client;
 }
 
-export const PENDING_EXPIRY_HOURS = 72;
+export const PENDING_EXPIRY_HOURS = 24;
 export const ACTIVE_EXPIRY_HOURS = 96;
 
 // ── hydration (DB row → JS object) ───────────────────────────────────────────

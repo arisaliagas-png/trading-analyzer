@@ -517,7 +517,7 @@ export function hasActiveTrade(instrument) {
 // dead (market moved away, or it was a false signal). Expire it so the scanner
 // can re-scan the symbol and produce a fresh setup.
 // ─────────────────────────────────────────────
-export const PENDING_EXPIRY_HOURS = 72;
+export const PENDING_EXPIRY_HOURS = 24;
 
 export function expireStalePending() {
   const cutoff = new Date(Date.now() - PENDING_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
