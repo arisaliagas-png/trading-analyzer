@@ -2172,7 +2172,7 @@ export default function App() {
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: '#94a3b8' }}>💎 Best R Trade</span>
-                            <strong style={{ color: '#10b981' }}>{pb.bestR != null ? (pb.bestR >= 0 ? '+' : '') + pb.bestR.toFixed(2) + 'R' : '—'}</strong>
+                            <strong style={{ color: (pb.bestR ?? 0) >= 0 ? '#10b981' : '#ef4444' }}>{pb.bestR != null ? (pb.bestR >= 0 ? '+' : '') + pb.bestR.toFixed(2) + 'R' : '—'}</strong>
                           </div>
                           <div style={{ display: 'flex', justifyContent: 'space-between' }}>
                             <span style={{ color: '#94a3b8' }}>💀 Worst R Trade</span>

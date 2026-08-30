@@ -102,14 +102,22 @@ function checkCircuitBreaker(trades, threshold = 3) {
 // Streaks and R-stat milestones computed locally from the trade log.
 // ─────────────────────────────────────────────
 function personalBests(trades) {
-  const closed = trades
-    .filter(t => t.status === 'SUCCESS' || t.status === 'FAILED')
-    .sort((a, b) => new Date(a.closedAt || a.createdAt) - new Date(b.closedAt || b.createdAt));
+  // R-math pool: only fully-resolved trades with a P&L (SUCCESS/FAILED/PARTIAL).
+  // EXPIRED setups never entered a position (thesis died before entry) → they are
+  // NOT counted in R, but they ARE counted in the loss streak (a setup that didn't win).
+  const rPool = trades
+    .filter(t => t.status === 'SUCCESS' || t.status === 'FAILED' || t.status === 'PARTIAL')
+    .sort((a, b) => new Date(a.closedAt || a.createdAt) - new Date(b.closedAt || a.createdAt));
+
+  // Streak pool: any closed trade that is NOT a win counts as a loss-streak increment.
+  const streakPool = trades
+    .filter(t => ['SUCCESS', 'FAILED', 'PARTIAL', 'EXPIRED'].includes(t.status))
+    .sort((a, b) => new Date(a.closedAt || a.createdAt) - new Date(b.closedAt || a.createdAt));
 
   // Streaks (by close time order)
   let curWin = 0, bestWin = 0, curLoss = 0, worstLoss = 0;
-  for (const t of closed) {
-    if (t.status === 'SUCCESS') {
+  for (const t of streakPool) {
+    if (t.status === 'SUCCESS' || t.status === 'PARTIAL') {
       curWin++; bestWin = Math.max(bestWin, curWin); curLoss = 0;
     } else {
       curLoss++; worstLoss = Math.max(worstLoss, curLoss); curWin = 0;
@@ -117,8 +125,9 @@ function personalBests(trades) {
   }
 
   // R stats (uses rMultiple if present, else falls back to a ±1 estimate)
-  const rValues = closed.map(t => {
+  const rValues = rPool.map(t => {
     if (typeof t.rMultiple === 'number') return t.rMultiple;
+    if (t.status === 'PARTIAL') return 0; // risk-free after TP1 (70% banked, SL→BE)
     return t.status === 'SUCCESS' ? 1 : -1;
   });
   const totalR = rValues.length ? parseFloat(rValues.reduce((a, b) => a + b, 0).toFixed(2)) : 0;
