@@ -38,7 +38,7 @@ const PINE = {
   mtfTimeframes: ['60', '240', 'D'],
   // ── Sweepable filters (relaxed defaults so setups actually trigger) ──
   wtBuyThresh: -10,   // Pine uses -45; we relax for backtest volume
-  wtSellThresh: 53,   // Pine uses 53
+  wtSellThresh: 30,   // relaxed from 53 so SHORT setups actually trigger (overbought, not extreme)
   mtfThreshold: 1,    // Pine uses 2 (3/3 alignment); relaxed to 1
   zThresh: 1.5,       // Pine uses 2.5; relaxed to 1.5
   enableShortFilters: false, // Pine: enableShortFilters flag. When false, SHORT doesn't require mtfBearish.
@@ -436,7 +436,7 @@ async function runBacktest(symbol, limit = 1000, opts = {}, cachedKlines = null)
     if (smartLong) dir = 'LONG';
     else if (smartShort) dir = 'SHORT';
     else if (structIsUp && zExtBull && wt2[i] <= cfg.wtBuyThresh) dir = 'LONG'; // fallback
-    else if (!structIsUp && zExtBear && wt2[i] >= cfg.wtSellThresh) dir = 'SHORT';
+    else if ((!structIsUp || zExtBear || wt2[i] >= cfg.wtSellThresh) && wt2[i] >= cfg.wtSellThresh && volCond) dir = 'SHORT';
     if (!dir) continue;
 
     // FIX: recompute OTE zone levels from DIR (not structIsUp) so entry/sl/tp align
