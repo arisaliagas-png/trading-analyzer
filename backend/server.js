@@ -747,16 +747,9 @@ app.get('/api/early-signals', async (req, res) => {
   }
 });
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(frontendDist, 'index.html'), (err) => {
-    if (err) {
-      res.status(404).send('Not Found');
-    }
-  });
-});
-
 // ─────────────────────────────────────────────
 // BOOK HISTORY — persistent liquidity map (from book_capture.mjs)
+// (Must be registered BEFORE the app.get('*') SPA fallback below)
 // ─────────────────────────────────────────────
 app.get('/api/book-history', (req, res) => {
   const symbol = (req.query.symbol || 'BTCUSDT').toUpperCase();
@@ -779,6 +772,14 @@ app.get('/api/book-history', (req, res) => {
   } catch (e) {
     res.json({ available: false, symbol, error: e.message, levels: [] });
   }
+});
+
+app.get('*', (req, res) => {
+  res.sendFile(path.join(frontendDist, 'index.html'), (err) => {
+    if (err) {
+      res.status(404).send('Not Found');
+    }
+  });
 });
 
 // Upload endpoint: capture script pushes its JSON to the server (Fly)
