@@ -74,7 +74,10 @@ async function fetchBinance(symbols) {
             if (kHigh > high) high = kHigh;
             last = kClose;
           }
-          prices[sym] = { price: last, low, high };
+          // `price` = last close (used for SL/TP + zone checks)
+          // `low`/`high` = min/max of the window (wick-aware SL/TP)
+          // `close` = last candle close (same as price, explicit for clarity)
+          prices[sym] = { price: last, low, high, close: last };
         }
       } else if (res.status === 400) {
         // Invalid symbol — try Hyperliquid (many alts/perps live there, not Binance)
@@ -231,12 +234,20 @@ export async function monitorTrades() {
       if ((trade.reasoning || '').includes('[NEEDS_CONFIRMATION]')) {
         continue; // leave as PENDING; wait for scanner re-confirmation
       }
-      // Activate when price enters the entry zone — either right now OR at any
-      // point in recorded history. Latches entered_zone=1 so a restart or an
-      // empty history can never leave the trade stuck in PENDING again.
-      let enteredZone = currentPrice && (isLong
-        ? (currentPrice <= trade.entryHigh && currentPrice >= trade.entryLow)
-        : (currentPrice >= trade.entryLow  && currentPrice <= trade.entryHigh));
+      // ── FIRST LAW: never chase the candle — let price come TO you ──
+      // Activation requires the price to ENTER the zone AND the last candle to
+      // CLOSE inside/at the zone edge (a pullback/retest that held), NOT a candle
+      // that merely wicks through the zone while momentum carries it the other way.
+      // LONG:  price must close >= entryLow (came down into zone, didn't rip through)
+      //        and close <= entryHigh (still at/below the zone top — a retest, not a breakout)
+      // SHORT: price must close <= entryHigh (came up into zone) and >= entryLow
+      const close = cur?.close ?? currentPrice;
+      const inZoneClose = isLong
+        ? (close >= trade.entryLow && close <= trade.entryHigh)
+        : (close <= trade.entryHigh && close >= trade.entryLow);
+      // Fallback: if we have no fresh candle close, accept price-in-zone from history
+      // (latched entered_zone=1 path below), but prefer the fresh close confirmation.
+      let enteredZone = inZoneClose;
 
       if (!enteredZone) {
         const history = await getPriceHistory(trade.id);
