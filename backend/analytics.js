@@ -49,6 +49,10 @@ function avg(arr) {
 // Only available for trades with price history records.
 // ─────────────────────────────────────────────
 async function realizedRR(trade) {
+  // A FAILED trade means the stop loss was hit → realized R is exactly -1.0.
+  // Do NOT derive it from price history (which may show a wick above entry before
+  // the SL was hit, producing a bogus positive R for a losing trade).
+  if (trade.status === 'FAILED') return -1.0;
   if (!trade.entryPrice || !trade.sl) return null;
   const prices = (await getPriceHistory(trade.id)).map(r => r.price);
   if (!prices.length) return null;
