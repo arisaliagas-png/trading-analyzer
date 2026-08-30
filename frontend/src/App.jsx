@@ -1336,6 +1336,7 @@ export default function App() {
                       <span className="h-symbol">
                         {card.instrument}
                         <span className="h-tf">{card.timeframe || '1h'}</span>
+                        {card.isNew && <span className="h-new-badge">NEW</span>}
                       </span>
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         {card.createdAt && (
