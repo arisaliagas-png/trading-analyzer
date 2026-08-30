@@ -215,7 +215,7 @@ export class HeatmapAggregator {
   // ── Binance ────────────────────────────────────────────────────────────────
   _connectBinance() {
     const sym = this.symbol.toLowerCase();
-    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${sym}@depth20@500ms`);
+    const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${sym}@depth500@100ms`);
     ws.on('open', () => console.log('[Heatmap] Binance ✓', sym));
     ws.on('message', (raw) => {
       try {
