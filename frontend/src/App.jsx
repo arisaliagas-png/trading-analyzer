@@ -2045,7 +2045,7 @@ export default function App() {
         <ChartTab
           assets={ASSETS_LIST}
           API_BASE={API_BASE}
-          signals={dnSignals}
+          signals={dn}
           livePrices={livePrices}
           onPrices={async (syms) => {
             try {
