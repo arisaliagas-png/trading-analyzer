@@ -46,6 +46,7 @@ const PINE = {
   adxMin: 20,         // require trending regime (ADX >= 20) for directional setups
   chopMax: 61.8,      // reject choppy regime (Choppiness > 61.8)
   volMultiplier: 1.2, // require volume > 1.2x SMA (Pine-equivalent)
+  cvdLookback: 20,    // CVD bias window (bars) for orderflow alignment
   enableShortFilters: false, // Pine: enableShortFilters flag. When false, SHORT doesn't require mtfBearish.
 };
 
@@ -221,6 +222,20 @@ function computeChoppinessArr(high, low, close, period = 14) {
   return out;
 }
 
+// ── CVD (Cumulative Volume Delta) array ──
+// Approximation: delta per bar = +volume if close>=open (bullish), -volume if bearish.
+// Returns cumulative array + a helper to get bias over a lookback window.
+function computeCVDArray(opens, closes, volumes) {
+  const out = [];
+  let cum = 0;
+  for (let i = 0; i < closes.length; i++) {
+    const delta = closes[i] >= (opens[i] ?? closes[i]) ? volumes[i] : -volumes[i];
+    cum += delta;
+    out.push(cum);
+  }
+  return out;
+}
+
 function zScore(close, len) {
   const out = [];
   for (let i = 0; i < close.length; i++) {
@@ -297,6 +312,7 @@ async function runBacktest(symbol, limit = 1000, opts = {}, cachedKlines = null)
   const { wt1, wt2 } = waveTrend(hlc3, high, low, close, cfg);
   const adxArr = computeADX(high, low, close, cfg.adxLength);
   const chopArr = computeChoppinessArr(high, low, close, cfg.chopPeriod);
+  const cvdArr = computeCVDArray(open, close, volume);
 
   // WaveTrend BUY/SELL signals (Pine: wtBuy = wtCross and wt2 <= -45, etc.)
   // + confluence window (Pine: wtBuy_win = ta.barssince(wtBuy) <= 3)
@@ -494,6 +510,17 @@ async function runBacktest(symbol, limit = 1000, opts = {}, cachedKlines = null)
     else if (structIsUp && zExtBull && wt2[i] <= cfg.wtBuyThresh) dir = 'LONG'; // fallback
     else if ((!structIsUp || zExtBear || wt2[i] >= cfg.wtSellThresh) && wt2[i] >= cfg.wtSellThresh && volCond) dir = 'SHORT';
     if (!dir) continue;
+
+    // ── CVD bias gate ──
+    // Require CVD delta (last N bars) to align with trade direction.
+    // LONG needs bullish CVD (delta > 0), SHORT needs bearish CVD (delta < 0).
+    const cvdNow = cvdArr[i];
+    const cvdPrev = cvdArr[Math.max(0, i - cfg.cvdLookback)];
+    const cvdDelta = cvdNow - cvdPrev;
+    const cvdBull = cvdDelta > 0;
+    const cvdBear = cvdDelta < 0;
+    if (dir === 'LONG' && !cvdBull) continue;
+    if (dir === 'SHORT' && !cvdBear) continue;
 
     // FIX: recompute OTE zone levels from DIR (not structIsUp) so entry/sl/tp align
     // with the actual signal. Previously entry/sl/tp came from structIsUp while dir
