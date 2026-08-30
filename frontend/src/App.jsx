@@ -276,6 +276,8 @@ export default function App() {
   const [U, setUHeatmap] = useState(null);
   const [Ha, setHaConnected] = useState(false);
   const [dn, setDnSignals] = useState([]);
+  const [liquidity, setLiquidity] = useState(null);
+  const [liquidityLoading, setLiquidityLoading] = useState(false);
   const alertedIds = useRef(new Set());
   const [Ga, setGaLastScan] = useState(null);
   const [Bt, setBtScannerState] = useState({ isScanning: false, lastScanAt: null });
@@ -693,6 +695,24 @@ export default function App() {
     }
   }, [l]);
 
+  // Fetch persistent book history (Liquidity Map)
+  const fetchLiquidity = async (sym) => {
+    setLiquidityLoading(true);
+    try {
+      const r = await fetch(`${API_BASE}/api/book-history?symbol=${sym}`);
+      const d = await r.json();
+      setLiquidity(d);
+    } catch (e) {
+      setLiquidity({ available: false, error: e.message, levels: [] });
+    } finally {
+      setLiquidityLoading(false);
+    }
+  };
+
+  useEffect(() => {
+    if (l === 'liquidity') fetchLiquidity(rl);
+  }, [l, rl]);
+
   // Render heatmap canvas
   useEffect(() => {
     if (!heatmapCanvasRef.current || heatmapHistoryRef.current.length === 0) return;
@@ -979,6 +999,7 @@ export default function App() {
           { id: 'heatmap', label: t.heatmap },
           { id: 'capital', label: t.capital },
           { id: 'scanner', label: `${t.scanner} (${dn.length})` },
+          { id: 'liquidity', label: '🗺️ Liquidity Map' },
           { id: 'analytics', label: t.analytics },
           { id: 'coach', label: t.coach },
           { id: 'early', label: t.early }
@@ -1858,6 +1879,77 @@ export default function App() {
 
               </div>
             </div>
+          )}
+        </div>
+      )}
+
+      {l === 'liquidity' && (
+        <div className="liquidity-map-tab" style={{ padding: '1rem 0' }}>
+          <div className="analytics-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
+            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+              <span style={{ fontSize: '1.5rem' }}>🗺️</span>
+              <h2 style={{ margin: 0, fontSize: '1.3rem' }}>Liquidity Map — {rl}</h2>
+            </div>
+            <button
+              onClick={() => fetchLiquidity(rl)}
+              disabled={liquidityLoading}
+              style={{ padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--foreground)', cursor: 'pointer' }}
+            >
+              {liquidityLoading ? '⏳ Φόρτωση…' : '🔄 Ανανέωση'}
+            </button>
+          </div>
+
+          {!liquidity && <p style={{ color: 'var(--muted-foreground)' }}>Φόρτωση ιστορικού ρευστότητας…</p>}
+
+          {liquidity && !liquidity.available && (
+            <div style={{ padding: '1rem', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
+              <p style={{ margin: 0, color: 'var(--foreground)' }}>
+                ⚠️ Δεν υπάρχει ιστορικό για το {rl}. Τρέξε το capture script (`node book_capture.mjs {rl} 76500 77000 5`) για να ξεκινήσει η καταγραφή.
+              </p>
+            </div>
+          )}
+
+          {liquidity && liquidity.available && (
+            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
+              {liquidity.levels.length === 0 && (
+                <p style={{ color: 'var(--muted-foreground)' }}>Κανένα σημαντικό wall ακόμα καταγεγραμμένο. Το script τρέχει;</p>
+              )}
+              {liquidity.levels.map((lvl) => {
+                const maxQ = Math.max(...liquidity.levels.map(l => l.maxQty), 1);
+                const pct = (lvl.maxQty / maxQ) * 100;
+                const isBid = lvl.side === 'bid';
+                return (
+                  <div key={lvl.price} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
+                    <span style={{ width: '90px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', color: 'var(--muted-foreground)' }}>
+                      ${lvl.price.toFixed(0)}
+                    </span>
+                    <div style={{ flex: 1, height: '18px', background: 'rgba(255,255,255,0.03)', borderRadius: '3px', position: 'relative', overflow: 'hidden' }}>
+                      <div
+                        style={{
+                          position: 'absolute',
+                          left: 0,
+                          top: 0,
+                          bottom: 0,
+                          width: `${pct}%`,
+                          background: isBid ? 'rgba(16,185,129,0.5)' : 'rgba(239,68,68,0.5)',
+                          borderLeft: `3px solid ${isBid ? '#10b981' : '#ef4444'}`
+                        }}
+                      />
+                      <span style={{ position: 'absolute', left: '8px', top: '1px', fontSize: '0.75rem', color: 'var(--foreground)' }}>
+                        {isBid ? '🟢 BID' : '🔴 ASK'} {lvl.maxQty.toFixed(1)} BTC
+                        {lvl.hits > 1 && <span style={{ color: 'var(--muted-foreground)' }}> · {lvl.hits}×</span>}
+                      </span>
+                    </div>
+                  </div>
+                );
+              })}
+            </div>
+          )}
+
+          {liquidity && liquidity.available && liquidity.levels.length > 0 && (
+            <p style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--muted-foreground)' }}>
+              📊 {liquidity.levels.length} επίπεδα καταγεγραμμένα · 🟢 Πράσινο = bid walls (support) · 🔴 Κόκκινο = ask walls (resistance)
+            </p>
           )}
         </div>
       )}

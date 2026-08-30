@@ -755,6 +755,32 @@ app.get('*', (req, res) => {
   });
 });
 
+// ─────────────────────────────────────────────
+// BOOK HISTORY — persistent liquidity map (from book_capture.mjs)
+// ─────────────────────────────────────────────
+app.get('/api/book-history', (req, res) => {
+  const symbol = (req.query.symbol || 'BTCUSDT').toUpperCase();
+  const tmp = process.env.LOCALAPPDATA
+    ? `${process.env.LOCALAPPDATA}/Temp`
+    : (process.env.TMP || '/tmp');
+  const dbFile = `${tmp}/book_history_${symbol.toLowerCase()}.json`;
+  try {
+    if (!fs.existsSync(dbFile)) return res.json({ available: false, symbol, levels: [] });
+    const db = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
+    const levels = Object.entries(db).map(([price, v]) => ({
+      price: parseFloat(price),
+      side: v.side,
+      hits: v.hits,
+      maxQty: v.maxQty,
+      firstSeen: v.firstSeen,
+      lastSeen: v.lastSeen
+    })).sort((a, b) => b.price - a.price);
+    res.json({ available: true, symbol, levels });
+  } catch (e) {
+    res.json({ available: false, symbol, error: e.message, levels: [] });
+  }
+});
+
 app.listen(port, '0.0.0.0', async () => {
   serverLog.info({ port, provider: process.env.AI_PROVIDER || 'gemini' }, '🚀 Server started');
 
