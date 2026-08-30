@@ -126,5 +126,21 @@ setInterval(() => {
 }, 60000);
 
 // Flush on exit
-process.on('SIGINT', () => { flushNow(); process.exit(0); });
-process.on('SIGTERM', () => { flushNow(); process.exit(0); });
+process.on('SIGINT', () => { flushNow(); uploadToServer(); process.exit(0); });
+process.on('SIGTERM', () => { flushNow(); uploadToServer(); process.exit(0); });
+
+// Upload to server (Fly) so the Liquidity Map tab works everywhere
+const UPLOAD_URL = process.env.UPLOAD_URL || 'https://trading-analyzer-affqwq.fly.dev/api/book-history/upload';
+function uploadToServer() {
+  try {
+    const body = JSON.stringify({ symbol: SYMBOL.toUpperCase(), levels: db });
+    fetch(UPLOAD_URL + '?symbol=' + SYMBOL, {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body
+    }).then(r => r.json()).then(d => log(`[upload] ${JSON.stringify(d)}`)).catch(e => log('[upload] error: ' + e.message));
+  } catch (e) { log('[upload] exception: ' + e.message); }
+}
+
+// Also upload every 5 min
+setInterval(uploadToServer, 300000);

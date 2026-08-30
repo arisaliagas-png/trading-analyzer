@@ -781,6 +781,22 @@ app.get('/api/book-history', (req, res) => {
   }
 });
 
+// Upload endpoint: capture script pushes its JSON to the server (Fly)
+app.post('/api/book-history/upload', express.json(), async (req, res) => {
+  const symbol = (req.query.symbol || req.body.symbol || 'BTCUSDT').toUpperCase();
+  const levels = req.body.levels || {};
+  const tmp = process.env.LOCALAPPDATA
+    ? `${process.env.LOCALAPPDATA}/Temp`
+    : (process.env.TMP || '/tmp');
+  const dbFile = `${tmp}/book_history_${symbol.toLowerCase()}.json`;
+  try {
+    fs.writeFileSync(dbFile, JSON.stringify(levels, null, 1));
+    res.json({ ok: true, symbol, count: Object.keys(levels).length });
+  } catch (e) {
+    res.status(500).json({ ok: false, error: e.message });
+  }
+});
+
 app.listen(port, '0.0.0.0', async () => {
   serverLog.info({ port, provider: process.env.AI_PROVIDER || 'gemini' }, '🚀 Server started');
 
