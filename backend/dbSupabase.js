@@ -98,12 +98,12 @@ export async function registerTrade(setup) {
 
   // GUARD: do not overwrite an in-flight trade (ACTIVE/PARTIAL/SUCCESS) with a
   // fresh scan result. A new scan re-emitting the same symbol+direction must not
-  // clobber a trade that already entered its zone or banked TP1.
-  // Only allow update if the existing row is PENDING/EXPIRED/FAILED (i.e. not live).
+  // clobber a trade that already entered its zone, banked TP1, or already closed.
+  // Only allow (re)registration if no live/closed row exists, OR existing is PENDING/ACTIVE.
   const { data: existing } = await (await client()).from('trades')
     .select('status').eq('id', setup.id).maybeSingle();
-  if (existing && ['ACTIVE', 'PARTIAL', 'SUCCESS'].includes(existing.status)) {
-    dbLog.info({ id: setup.id, existingStatus: existing.status }, 'registerTrade skipped — live trade in flight, not overwriting');
+  if (existing && !['PENDING', 'ACTIVE'].includes(existing.status)) {
+    dbLog.info({ id: setup.id, existingStatus: existing.status }, 'registerTrade skipped — trade already closed/expired, not reopening');
     return;
   }
 
