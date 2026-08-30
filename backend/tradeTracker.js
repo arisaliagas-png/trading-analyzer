@@ -295,7 +295,7 @@ export async function monitorTrades() {
           await removeSignalByInstrument(trade.instrument, trade.direction);
           onTradeClosed('SUCCESS');
           trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '🎯 PARTIAL trade hit TP2 — full SUCCESS (70%@TP1 + 30%@TP2)');
-          triggerWinReview(trade, currentPrice).catch(e => trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review failed'));
+          // Win-review is now MANUAL (button on trade card) to save AI credits.
         } else if (hitSl) {
           // Breakeven SL hit: 70% already won at TP1, 30% exited at breakeven → net win.
           reviewedThisSession.add(trade.id);
@@ -303,7 +303,7 @@ export async function monitorTrades() {
           await removeSignalByInstrument(trade.instrument, trade.direction);
           onTradeClosed('SUCCESS');
           trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '✅ PARTIAL trade hit breakeven SL — net WIN (70% banked @TP1)');
-          triggerWinReview(trade, currentPrice).catch(e => trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review failed'));
+          // Win-review is now MANUAL (button on trade card) to save AI credits.
         }
       } else if (hitTp1) {
         // First TP1 hit: close 70% at TP1, move SL to breakeven, trail 30% to TP2.
@@ -312,8 +312,7 @@ export async function monitorTrades() {
         await updateTradeStatus(trade.id, 'PARTIAL', currentPrice, entryPrice, beSl);
         trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '🔪 PARTIAL CLOSE: 70% @TP1, SL→breakeven, 30% trails to TP2');
         // Keep the signal alive (don't removeSignal) — still monitoring for TP2/BE.
-        // Win review for the banked 70% portion:
-        triggerWinReview(trade, currentPrice).catch(e => trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review failed'));
+        // Win review for the banked 70% portion is now MANUAL (button on trade card).
 
       } else if (hitSl) {
         // SL hit: record exit at the SL price (not the live price spike) for correct R.
@@ -573,6 +572,7 @@ Return ONLY valid JSON (no markdown, no preamble):
 // PUBLIC: register a new trade setup
 // ─────────────────────────────────────────────
 export { registerTrade as registerTradeSetup } from './db.js';
+export { triggerWinReview };
 
 // ─────────────────────────────────────────────
 // START BACKGROUND MONITOR (every 30s)

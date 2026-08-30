@@ -10,7 +10,7 @@ import { analyzeChart, getSecondOpinion } from './aiProvider.js';
 import { aggregator } from './heatmap.js';
 import { getLiveIndicators } from './indicators.js';
 import { fetchAssetNews } from './newsSearch.js';
-import { registerTradeSetup, startTracker } from './tradeTracker.js';
+import { registerTradeSetup, startTracker, triggerWinReview } from './tradeTracker.js';
 import { getCapitalFlow } from './capitalFlow.js';
 import { startScanner, getActiveSignals, triggerManualScan, getScanState } from './scanner.js';
 import { migrateFromJSON, getAllTrades, getAllLessons, getLessonsFor, getAlerts, markAlertsSeen } from './db.js';
@@ -535,6 +535,25 @@ app.get('/api/history', async (req, res) => {
     res.status(500).json({ error: e.message });
   }
 });
+
+// Manual win-review trigger (HYBRID mode: post-mortem auto, win-review manual)
+// Saves AI credits — only fires when the user clicks "Analyze Win" on a trade card.
+app.post('/api/trades/:id/win-review', async (req, res) => {
+  try {
+    const id = req.params.id;
+    const trade = await getTradeById(id);
+    if (!trade) return res.status(404).json({ error: 'Trade not found' });
+    if (trade.status !== 'SUCCESS' && trade.status !== 'PARTIAL') {
+      return res.status(400).json({ error: 'Win-review only for SUCCESS/PARTIAL trades' });
+    }
+    triggerWinReview(trade, trade.close_price ?? trade.closePrice ?? trade.entry_price)
+      .catch(e => serverLog.error({ tradeId: id, err: e.message }, 'Manual win-review failed'));
+    res.json({ ok: true, message: 'Win review started — lesson will appear in Lessons tab' });
+  } catch (e) {
+    res.status(500).json({ error: e.message });
+  }
+});
+
 
 // ─────────────────────────────────────────────
 // CANDLES — OHLCV data for the frontend chart

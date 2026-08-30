@@ -352,6 +352,23 @@ export default function App() {
     }
   };
 
+  // Manual win-review trigger (HYBRID mode — saves AI credits)
+  const [winReviewLoading, setWinReviewLoading] = useState(null); // trade id being reviewed
+  const triggerWinReview = async (id) => {
+    setWinReviewLoading(id);
+    try {
+      const res = await fetch(`${API_BASE}/api/trades/${id}/win-review`, { method: 'POST' });
+      const d = await res.json();
+      if (!res.ok) throw new Error(d.error || 'Failed');
+      alert('✅ Win review started — lesson will appear in Lessons tab shortly.');
+      await loadHistory();
+    } catch (e) {
+      alert('Win review error: ' + e.message);
+    } finally {
+      setWinReviewLoading(null);
+    }
+  };
+
   // Live prices for ACTIVE trades — poll Binance ticker every 5s so PnL updates in real time
   const loadLivePrices = async () => {
     try {
@@ -1487,6 +1504,17 @@ export default function App() {
                     )}
                     <div className="h-expand-hint" style={{ textAlign: 'center', fontSize: '0.7rem', color: '#64748b', marginTop: '0.5rem', paddingTop: '0.3rem', borderTop: '1px solid #1e293b22' }}>
                       {isExpanded ? 'Click card to collapse' : 'Click card to view details & indicator values'}
+                    {(card.status === 'SUCCESS' || card.status === 'PARTIAL') && (
+                      <div style={{ marginTop: '0.5rem' }}>
+                        <button
+                          onClick={(e) => { e.stopPropagation(); triggerWinReview(card.id); }}
+                          disabled={winReviewLoading === card.id}
+                          style={{ width: '100%', padding: '0.45rem', borderRadius: '6px', border: '1px solid #10b98140', background: winReviewLoading === card.id ? '#10b98110' : '#10b98120', color: '#10b981', fontWeight: 700, fontSize: '0.78rem', cursor: 'pointer' }}
+                        >
+                          {winReviewLoading === card.id ? '⏳ Analyzing…' : '🔍 Analyze Win (AI Lesson)'}
+                        </button>
+                      </div>
+                    )}
                     </div>
                   </div>
                 );
