@@ -76,16 +76,19 @@ async function realizedRR(trade) {
 // Returns true if last N closed trades are all FAILED.
 // ─────────────────────────────────────────────
 function checkCircuitBreaker(trades, threshold = 3) {
+  // Count consecutive failures from the most recent closed trade backwards.
+  // A "failure" for circuit-breaker purposes = any closed trade that did NOT win
+  // (FAILED, EXPIRED, or a PARTIAL that later got stopped — though PARTIAL is risk-free
+  // after TP1, we still treat it as a non-loss streak-breaker only if it resolved as win).
+  // We include EXPIRED so a run of dead setups also trips the breaker.
   const closed = trades
-    .filter(t => t.status === 'SUCCESS' || t.status === 'FAILED')
+    .filter(t => ['SUCCESS', 'FAILED', 'PARTIAL', 'EXPIRED'].includes(t.status))
     .sort((a, b) => new Date(b.closedAt || b.createdAt) - new Date(a.closedAt || a.createdAt));
-
-  if (closed.length < threshold) return { tripped: false, consecutiveFails: 0 };
 
   let consecutiveFails = 0;
   for (const t of closed) {
-    if (t.status === 'FAILED') consecutiveFails++;
-    else break;
+    if (t.status === 'FAILED' || t.status === 'EXPIRED') consecutiveFails++;
+    else break; // SUCCESS or PARTIAL resets the fail streak
   }
 
   return {
