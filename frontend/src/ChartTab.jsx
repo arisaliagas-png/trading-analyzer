@@ -40,6 +40,8 @@ export default function ChartTab({ assets, API_BASE, signals, livePrices, onPric
   const emaRefs = useRef({});
   const lineRefs = useRef({});
   const mtfRefs = useRef({}); // { '4h': {chart, series}, '1d': {...} }
+  const drawModeRef = useRef(drawMode);
+  useEffect(() => { drawModeRef.current = drawMode; }, [drawMode]);
 
   // ── Init main chart ──
   useEffect(() => {
@@ -62,25 +64,16 @@ export default function ChartTab({ assets, API_BASE, signals, livePrices, onPric
 
     // click handler for manual position drawing
     chart.subscribeClick((param) => {
-      if (!drawMode || param.time == null) return;
-      const price = param.priceScale && param.priceScale.coordinateToPrice
-        ? param.seriesData.get(series)?.close
-        : null;
-      const p = price ?? (param.point && param.priceScale ? undefined : undefined);
-      // lightweight-charts gives price via param.priceScale().coordinateToPrice? use param.*
-      const priceVal = param.priceScale && typeof param.priceScale.coordinateToPrice === 'function'
-        ? param.priceScale.coordinateToPrice(param.point.y)
-        : (param.seriesData.get(series)?.close ?? null);
-      if (priceVal == null) return;
+      if (!drawModeRef.current || !param.point) return;
+      const priceVal = series.coordinateToPrice(param.point.y);
+      if (priceVal == null || isNaN(priceVal)) return;
       setManualPos(prev => {
-        if (!prev || prev.dir !== drawMode) {
-          return { dir: drawMode, entry: priceVal, tp: null, sl: null };
+        if (!prev || prev.dir !== drawModeRef.current) {
+          return { dir: drawModeRef.current, entry: priceVal, tp: null, sl: null };
         }
-        // second click sets TP (away from entry) and SL (opposite side)
         const tp = priceVal;
-        const sl = prev.entry - (priceVal - prev.entry); // mirror for SL
-        const finalPos = { dir: drawMode, entry: prev.entry, tp, sl };
-        return finalPos;
+        const sl = prev.entry - (priceVal - prev.entry);
+        return { dir: drawModeRef.current, entry: prev.entry, tp, sl };
       });
     });
 
@@ -90,10 +83,6 @@ export default function ChartTab({ assets, API_BASE, signals, livePrices, onPric
     ro.observe(chartContainerRef.current);
     return () => { ro.disconnect(); chart.remove(); };
   }, []); // eslint-disable-line
-
-  // re-bind drawMode handler when it changes (store in ref)
-  const drawModeRef = useRef(drawMode);
-  useEffect(() => { drawModeRef.current = drawMode; }, [drawMode]);
 
   // ── Load candles ──
   useEffect(() => {
