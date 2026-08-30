@@ -826,11 +826,9 @@ export async function getActiveSignals() {
     };
   });
 
-  // Schedule isNew flag clear (300s delay so the user has time to SEE the NEW
-  // badge even if they screenshot a minute or two after the scan finishes).
-  enriched
-    .filter(t => t.isNew)
-    .forEach(t => setTimeout(async () => { await clearIsNew(t.id); }, 300000));
+  // is_new flag is managed by upsertSignal: set to 1 only for brand-new
+  // symbol+direction setups, cleared to 0 when an existing setup is re-emitted
+  // by a subsequent scan. No timed clear needed — NEW persists until next scan.
 
   return enriched;
 }

@@ -133,12 +133,12 @@ export async function upsertSignal(signal) {
     .select('*').eq('instrument', signal.symbol).eq('direction', signal.direction)
     .in('status', ['PENDING', 'ACTIVE']).limit(1).maybeSingle();
   if (existing) {
-    // Migrate legacy Date.now()-based id → deterministic symbol_direction id
-    // AND write grade/pct in the same operation, so no null-grade record lingers.
+    // Existing signal being re-emitted by a new scan → NOT new (clear is_new).
+    // Only a brand-new symbol+direction gets is_new=1 (see else branch).
     const { error } = await (await client()).from('trades').update({
       id:          signal.id,
       status:      signal.status, grade: signal.grade, confidence_pct: signal.pct,
-      reasoning:   signal.reasoning, is_new: 1,
+      reasoning:   signal.reasoning, is_new: 0,
       sl: signal.sl ?? null, entry_low: signal.entry?.low ?? null, entry_high: signal.entry?.high ?? null,
       tp1: signal.targets?.[0] ?? null, tp2: signal.targets?.[1] ?? null,
       indicator_snapshot: JSON.stringify(signal.indicators || [])

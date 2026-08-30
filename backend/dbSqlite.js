@@ -297,7 +297,7 @@ export function upsertSignal(signal) {
       grade:          signal.grade,
       confidence_pct: signal.pct,
       reasoning:      signal.reasoning,
-      is_new:         existing.is_new,
+      is_new:       0,
       sl:           signal.sl ?? null,
       tp1:          signal.targets?.[0] ?? null,
       tp2:          signal.targets?.[1] ?? null
