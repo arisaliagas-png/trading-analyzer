@@ -156,6 +156,7 @@ import {
   upsertSignal,
   removeSignalByInstrument,
   getActiveTrades,
+  updateTradeStatus,
   updateTradeMeta,
   hasActiveTrade,
   clearIsNew
@@ -280,7 +281,9 @@ async function scanAsset(symbol, scanId, macro = null) {
     const isFresh = pivotAge <= MAX_PIVOT_AGE;
 
     if (!hasSetup || !hasDecentScore || !isFresh) {
-      await removeSignalByInstrument(symbol);
+      // Only remove the SAME-direction PENDING signal. A new scan that finds no
+      // setup for LONG must NOT wipe an existing SHORT setup (or vice-versa).
+      await removeSignalByInstrument(symbol, engine.direction);
       const reason = !isFresh ? `stale swing pivot (${pivotAge} candles old)` : 'no valid setup';
       scannerLog.info({ symbol, scanId, strategy: engine.executionStrategy, score: engine.megaScore, pivotAge }, `Skipped — ${reason}`);
       return null;
@@ -391,7 +394,7 @@ Return ONLY valid JSON (no markdown, no extra text):
 
     if (!longOk && !shortOk) {
       scannerLog.warn({ symbol, scanId, direction: tradeDir, entry: idealEntry, sl: slVal, tp1: tp1Val }, 'Rejected — geometry invalid');
-      await removeSignalByInstrument(symbol);
+      await removeSignalByInstrument(symbol, tradeDir);
       return null;
     }
 
@@ -402,7 +405,7 @@ Return ONLY valid JSON (no markdown, no extra text):
 
     if (rr < 1.0) {
       scannerLog.warn({ symbol, scanId, rr }, 'Rejected — R:R too low');
-      await removeSignalByInstrument(symbol);
+      await removeSignalByInstrument(symbol, tradeDir);
       return null;
     }
 
@@ -448,7 +451,7 @@ Return ONLY valid JSON (no markdown, no extra text):
       const slAtrRatio = slRisk / atr14;
       if (slAtrRatio < 0.8) {
         scannerLog.warn({ symbol, scanId, slRisk, atr14, ratio: slAtrRatio.toFixed(2) }, 'ATR-FLOOR VETO — SL < 0.8×ATR (structurally too tight)');
-        await removeSignalByInstrument(symbol);
+        await removeSignalByInstrument(symbol, tradeDir);
         return null;
       } else if (slAtrRatio < 1.0) {
         atrFloorDowngrade = true;
@@ -627,6 +630,18 @@ Return ONLY valid JSON (no markdown, no extra text):
         ]
       };
 
+      // If the same symbol already has an OPPOSITE-direction PENDING setup, close it
+      // as EXPIRED before registering the new one — a symbol carries ONE thesis at a
+      // time, and a flipped direction means the old thesis is dead (not deleted, so
+      // the history is preserved). ACTIVE trades are never touched here.
+      const oppositeDir = tradeDir === 'LONG' ? 'SHORT' : 'LONG';
+      const existingOpp = await getActiveTrades();
+      const clash = existingOpp.find(t => t.instrument === symbol && t.direction === oppositeDir && t.status === 'PENDING');
+      if (clash) {
+        await updateTradeStatus(clash.id, 'EXPIRED', null, clash.entry_price);
+        scannerLog.info({ symbol, scanId, closedId: clash.id }, 'Closed opposite-direction PENDING as EXPIRED (new scan flipped direction)');
+      }
+
       // Upsert into SQLite (locks original levels if symbol already exists)
       await upsertSignal(signal);
 
@@ -666,7 +681,7 @@ Return ONLY valid JSON (no markdown, no extra text):
       return signal;
     } else {
       scannerLog.info({ symbol, scanId, status: aiResult.setupStatus, grade: aiResult.confidenceGrade }, 'Rejected by AI');
-      await removeSignalByInstrument(symbol);
+      await removeSignalByInstrument(symbol, tradeDir);
     }
 
   } catch (e) {

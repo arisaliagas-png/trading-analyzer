@@ -254,7 +254,7 @@ export async function monitorTrades() {
 
         if (movedAway && distPct > MAX_PENDING_DIST) {
           await updateTradeStatus(trade.id, 'EXPIRED', null, trade.entry_price);
-          await removeSignalByInstrument(trade.instrument);
+          await removeSignalByInstrument(trade.instrument, trade.direction);
           onTradeClosed('EXPIRED');
           trackerLog.warn({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice, distPct: distPct.toFixed(2) }, '⚠️ PENDING setup invalidated — price moved away from zone (thesis dead)');
         }
@@ -292,7 +292,7 @@ export async function monitorTrades() {
         if (hitTp2) {
           reviewedThisSession.add(trade.id);
           await updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
-          await removeSignalByInstrument(trade.instrument);
+          await removeSignalByInstrument(trade.instrument, trade.direction);
           onTradeClosed('SUCCESS');
           trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '🎯 PARTIAL trade hit TP2 — full SUCCESS (70%@TP1 + 30%@TP2)');
           triggerWinReview(trade, currentPrice).catch(e => trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review failed'));
@@ -300,7 +300,7 @@ export async function monitorTrades() {
           // Breakeven SL hit: 70% already won at TP1, 30% exited at breakeven → net win.
           reviewedThisSession.add(trade.id);
           await updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
-          await removeSignalByInstrument(trade.instrument);
+          await removeSignalByInstrument(trade.instrument, trade.direction);
           onTradeClosed('SUCCESS');
           trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '✅ PARTIAL trade hit breakeven SL — net WIN (70% banked @TP1)');
           triggerWinReview(trade, currentPrice).catch(e => trackerLog.error({ tradeId: trade.id, err: e.message }, 'Win review failed'));
@@ -320,7 +320,7 @@ export async function monitorTrades() {
         reviewedThisSession.add(trade.id);
         const slPrice = trade.sl;
         await updateTradeStatus(trade.id, 'FAILED', slPrice, trade.entry_price);
-        await removeSignalByInstrument(trade.instrument);
+        await removeSignalByInstrument(trade.instrument, trade.direction);
         onTradeClosed('FAILED');
         trackerLog.warn({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '❌ Trade hit STOP LOSS');
 

@@ -378,13 +378,19 @@ export function updateTradeLevels(id, levels) {
  * ACTIVE trades are NEVER deleted here — they are being monitored and deleting them
  * would silently kill a live trade if another symbol's scan re-runs.
  */
-export function removeSignalByInstrument(instrument) {
+export function removeSignalByInstrument(instrument, direction = null) {
+  // Only remove PENDING signals (never ACTIVE — a live position must survive a rescan).
+  // If a direction is given, scope the delete to that direction only (so a new
+  // SHORT scan does NOT wipe an existing LONG setup of the same symbol).
+  let query = `DELETE FROM trades WHERE instrument = ? AND status = 'PENDING'`;
+  const params = [instrument];
+  if (direction) { query += ` AND direction = ?`; params.push(direction); }
   const count = db.prepare(
-    `SELECT COUNT(*) as c FROM trades WHERE instrument = ? AND status = 'PENDING'`
-  ).get(instrument);
+    `SELECT COUNT(*) as c FROM trades WHERE instrument = ? AND status = 'PENDING'${direction ? ` AND direction = ?` : ''}`
+  ).get(...params);
   if (count?.c > 0) {
-    db.prepare(`DELETE FROM trades WHERE instrument = ? AND status = 'PENDING'`).run(instrument);
-    dbLog.info({ instrument }, 'Removed PENDING signal (ACTIVE trades preserved)');
+    db.prepare(query).run(...params);
+    dbLog.info({ instrument, direction: direction || 'ALL' }, 'Removed PENDING signal(s) (ACTIVE trades preserved)');
   }
 }
 

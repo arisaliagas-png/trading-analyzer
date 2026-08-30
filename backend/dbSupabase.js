@@ -196,13 +196,15 @@ export async function updateTradeMeta(id, indicator_snapshot) {
   if (error) dbLog.error({ err: error.message }, 'Supabase updateTradeMeta failed');
 }
 
-export async function removeSignalByInstrument(instrument) {
-  const { count, error } = await (await client()).from('trades')
-    .select('*', { count: 'exact', head: true }).eq('instrument', instrument).eq('status', 'PENDING');
-  if (count > 0) {
-    const { error: e2 } = await (await client()).from('trades').delete().eq('instrument', instrument).eq('status', 'PENDING');
-    if (!e2) dbLog.info({ instrument }, 'Removed PENDING signal (ACTIVE preserved)');
-  }
+export async function removeSignalByInstrument(instrument, direction = null) {
+  // Only remove PENDING signals (never ACTIVE — a live position must survive a rescan).
+  // If a direction is given, scope the delete to that direction only (so a new
+  // SHORT scan does NOT wipe an existing LONG setup of the same symbol).
+  const query = (await client()).from('trades')
+    .delete().eq('instrument', instrument).eq('status', 'PENDING');
+  if (direction) query.eq('direction', direction);
+  const { error } = await query;
+  if (!error) dbLog.info({ instrument, direction: direction || 'ALL' }, 'Removed PENDING signal(s)');
   if (error) dbLog.error({ err: error.message }, 'Supabase removeSignalByInstrument failed');
 }
 
