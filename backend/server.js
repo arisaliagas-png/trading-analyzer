@@ -16,6 +16,8 @@ import { startScanner, getActiveSignals, triggerManualScan, getScanState } from 
 import { migrateFromJSON, getAllTrades, getAllLessons, getLessonsFor, getAlerts, markAlertsSeen } from './db.js';
 import { computeAnalytics } from './analytics.js';
 import { serverLog } from './logger.js';
+import { startLiquidityCapture } from './liquidityCapture.js';
+import { getWalls } from './liquidityStore.js';
 import { resetCircuitBreaker, getCircuitBreakerState, ACCOUNT_EQUITY } from './riskManager.js';
 
 dotenv.config();
@@ -751,23 +753,11 @@ app.get('/api/early-signals', async (req, res) => {
 // BOOK HISTORY — persistent liquidity map (from book_capture.mjs)
 // (Must be registered BEFORE the app.get('*') SPA fallback below)
 // ─────────────────────────────────────────────
-app.get('/api/book-history', (req, res) => {
+app.get('/api/book-history', async (req, res) => {
   const symbol = (req.query.symbol || 'BTCUSDT').toUpperCase();
-  const tmp = process.env.LOCALAPPDATA
-    ? `${process.env.LOCALAPPDATA}/Temp`
-    : (process.env.TMP || '/tmp');
-  const dbFile = `${tmp}/book_history_${symbol.toLowerCase()}.json`;
   try {
-    if (!fs.existsSync(dbFile)) return res.json({ available: false, symbol, levels: [] });
-    const db = JSON.parse(fs.readFileSync(dbFile, 'utf8'));
-    const levels = Object.entries(db).map(([price, v]) => ({
-      price: parseFloat(price),
-      side: v.side,
-      hits: v.hits,
-      maxQty: v.maxQty,
-      firstSeen: v.firstSeen,
-      lastSeen: v.lastSeen
-    })).sort((a, b) => b.price - a.price);
+    const levels = await getWalls(symbol);
+    if (levels.length === 0) return res.json({ available: false, symbol, levels: [] });
     res.json({ available: true, symbol, levels });
   } catch (e) {
     res.json({ available: false, symbol, error: e.message, levels: [] });
@@ -814,6 +804,9 @@ app.listen(port, '0.0.0.0', async () => {
 
   // Start autonomous post-trade tracking and learning loop
   startTracker();
+
+  // Start Liquidity Map capture (runs inside this process, writes to Supabase)
+  startLiquidityCapture();
 
   // Initialise scanner (loads signal count from DB)
   await startScanner();
