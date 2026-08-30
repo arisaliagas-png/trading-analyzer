@@ -41,6 +41,11 @@ const PINE = {
   wtSellThresh: 30,   // relaxed from 53 so SHORT setups actually trigger (overbought, not extreme)
   mtfThreshold: 1,    // Pine uses 2 (3/3 alignment); relaxed to 1
   zThresh: 1.5,       // Pine uses 2.5; relaxed to 1.5
+  adxLength: 14,
+  chopPeriod: 14,
+  adxMin: 20,         // require trending regime (ADX >= 20) for directional setups
+  chopMax: 61.8,      // reject choppy regime (Choppiness > 61.8)
+  volMultiplier: 1.2, // require volume > 1.2x SMA (Pine-equivalent)
   enableShortFilters: false, // Pine: enableShortFilters flag. When false, SHORT doesn't require mtfBearish.
 };
 
@@ -174,6 +179,48 @@ function waveTrend(hlc3, high, low, close, p) {
   return { wt1, wt2 };
 }
 
+// ── ADX (trend strength) ──
+function computeADX(high, low, close, len = 14) {
+  const out = [];
+  const tr = [], pDM = [], mDM = [];
+  for (let i = 0; i < close.length; i++) {
+    if (i === 0) { tr.push(0); pDM.push(0); mDM.push(0); out.push(null); continue; }
+    const hl = high[i] - low[i];
+    const hc = Math.abs(high[i] - close[i - 1]);
+    const lc = Math.abs(low[i] - close[i - 1]);
+    tr.push(Math.max(hl, hc, lc));
+    const up = high[i] - high[i - 1];
+    const dn = low[i - 1] - low[i];
+    pDM.push(up > dn && up > 0 ? up : 0);
+    mDM.push(dn > up && dn > 0 ? dn : 0);
+  }
+  const trS = rma(tr, len), pS = rma(pDM, len), mS = rma(mDM, len);
+  for (let i = 0; i < close.length; i++) {
+    if (i < len * 2) { out.push(null); continue; }
+    const diP = trS[i] ? (pS[i] / trS[i]) * 100 : 0;
+    const diM = trS[i] ? (mS[i] / trS[i]) * 100 : 0;
+    const dx = (diP + diM) ? Math.abs(diP - diM) / (diP + diM) * 100 : 0;
+    out.push(dx);
+  }
+  return out;
+}
+
+// ── Choppiness Index (array) ──
+function computeChoppinessArr(high, low, close, period = 14) {
+  const atrArr = atr(high, low, close, 1);
+  const out = [];
+  for (let i = 0; i < close.length; i++) {
+    if (i < period) { out.push(null); continue; }
+    let sumATR = 0;
+    for (let j = i - period + 1; j <= i; j++) if (atrArr[j] != null) sumATR += atrArr[j];
+    const hh = Math.max(...high.slice(i - period + 1, i + 1));
+    const ll = Math.min(...low.slice(i - period + 1, i + 1));
+    const range = hh - ll;
+    out.push(range === 0 ? null : 100 * Math.log10(sumATR / range) / Math.log10(period));
+  }
+  return out;
+}
+
 function zScore(close, len) {
   const out = [];
   for (let i = 0; i < close.length; i++) {
@@ -248,6 +295,8 @@ async function runBacktest(symbol, limit = 1000, opts = {}, cachedKlines = null)
   const zArr = zScore(close, cfg.zScoreLookback);
   const volSMA = sma(volume, cfg.volSMAPeriod);
   const { wt1, wt2 } = waveTrend(hlc3, high, low, close, cfg);
+  const adxArr = computeADX(high, low, close, cfg.adxLength);
+  const chopArr = computeChoppinessArr(high, low, close, cfg.chopPeriod);
 
   // WaveTrend BUY/SELL signals (Pine: wtBuy = wtCross and wt2 <= -45, etc.)
   // + confluence window (Pine: wtBuy_win = ta.barssince(wtBuy) <= 3)
@@ -375,6 +424,13 @@ async function runBacktest(symbol, limit = 1000, opts = {}, cachedKlines = null)
       : (close[i] >= p618 && close[i] <= p786);
     if (!inOTE) continue;
     cInOTE++;
+
+    // ── Regime gate (mirrors live scanner weak-regime guard) ──
+    // Reject directional setups in CHOPPY/RANGE regimes (mean-reversion kills entries).
+    const adxV = adxArr[i];
+    const chopV = chopArr[i];
+    const choppy = (adxV != null && adxV < cfg.adxMin) || (chopV != null && chopV > cfg.chopMax);
+    if (choppy) continue;
 
     // ── Filters (from Pine smart entry) ──
     // WaveTrend cross (Pine: wtBuy_win = barssince(wtBuy) <= 3)
