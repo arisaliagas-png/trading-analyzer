@@ -76,21 +76,36 @@ function hydrate(row) {
 function computeRMultiple(row, samples) {
   const entry = row.entry_price;
   const sl = row.sl;
-  if (entry == null || sl == null) return null;
-  const risk = Math.abs(entry - sl);
-  if (risk === 0) return null;
+  const direction = row.direction;
+  const tp1 = row.tp1;
+  if (entry == null) return null;
 
   // A FAILED trade means the stop loss was hit → realized R is exactly -1.0
   // (do NOT trust close_price here: a manual close or a scanner re-emit may have
   // left close_price at a stale/wrong level while the SL column changed).
   if (row.status === 'FAILED') return -1.0;
 
+  // PARTIAL = 70% closed at TP1, SL moved to breakeven, 30% trails to TP2.
+  // Net realized R = 0.70 × (TP1 distance in R). If TP1 is missing, fall back to 0.
+  if (row.status === 'PARTIAL') {
+    if (tp1 == null) return 0;
+    const risk = Math.abs(entry - sl);
+    const tp1R = risk > 0
+      ? (direction === 'SHORT' ? (entry - tp1) / risk : (tp1 - entry) / risk)
+      : 0;
+    return parseFloat((0.70 * tp1R).toFixed(2));
+  }
+
+  if (sl == null) return null;
+  const risk = Math.abs(entry - sl);
+  if (risk === 0) return null;
+
   let exit = row.close_price != null ? row.close_price : null;
   if (exit == null && Array.isArray(samples) && samples.length > 0) {
     exit = samples[samples.length - 1].price;
   }
   if (exit == null) return null;
-  const r = (row.direction === 'SHORT') ? (entry - exit) / risk : (exit - entry) / risk;
+  const r = (direction === 'SHORT') ? (entry - exit) / risk : (exit - entry) / risk;
   return parseFloat(r.toFixed(2));
 }
 

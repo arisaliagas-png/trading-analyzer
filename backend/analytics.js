@@ -130,9 +130,11 @@ function personalBests(trades) {
   // R stats (uses rMultiple if present, else falls back to a ±1 estimate)
   const rValues = rPool.map(t => {
     if (typeof t.rMultiple === 'number') return t.rMultiple;
-    if (t.status === 'PARTIAL') return 0; // risk-free after TP1 (70% banked, SL→BE)
-    return t.status === 'SUCCESS' ? 1 : -1;
-  });
+    if (t.status === 'SUCCESS') return 1;
+    if (t.status === 'FAILED') return -1;
+    if (t.status === 'PARTIAL') return null; // should have rMultiple from computeRMultiple
+    return 0;
+  }).filter(v => v !== null);
   const totalR = rValues.length ? parseFloat(rValues.reduce((a, b) => a + b, 0).toFixed(2)) : 0;
   const bestR  = rValues.length ? Math.max(...rValues) : null;
   const worstR = rValues.length ? Math.min(...rValues) : null;
