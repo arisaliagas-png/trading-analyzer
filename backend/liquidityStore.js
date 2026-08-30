@@ -49,6 +49,24 @@ export async function upsertWall(symbol, side, price, qty, prev) {
   return { hits, maxQty };
 }
 
+// Delete a withdrawn wall (whale pulled their limit order back) so the map
+// only shows real, live liquidity. Walls that were HIT by price are kept
+// (historical map); only withdrawn ones are removed.
+export async function deleteWall(symbol, price, side) {
+  try {
+    const c = await client();
+    const { error } = await c
+      .from('liquidity_walls')
+      .delete()
+      .eq('symbol', symbol.toUpperCase())
+      .eq('price', price)
+      .eq('side', side);
+    if (error) dbLog.warn({ err: error.message }, 'liquidityStore delete failed');
+  } catch (e) {
+    dbLog.warn({ err: e.message }, 'liquidityStore delete exception');
+  }
+}
+
 // Fetch all walls for a symbol, sorted high→low price.
 export async function getWalls(symbol) {
   try {
