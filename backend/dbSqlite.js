@@ -583,6 +583,11 @@ function computeRMultiple(row, samples) {
   const risk = Math.abs(entry - sl);
   if (risk === 0) return null;
 
+  // A FAILED trade means the stop loss was hit → realized R is exactly -1.0
+  // (do NOT trust close_price here: a manual close or a scanner re-emit may have
+  // left close_price at a stale/wrong level while the SL column changed).
+  if (row.status === 'FAILED') return -1.0;
+
   let exit = row.close_price != null ? row.close_price : null;
   if (exit == null && Array.isArray(samples) && samples.length > 0) {
     exit = samples[samples.length - 1].price;
