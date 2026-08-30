@@ -3,7 +3,7 @@
 // >= MIN_BTC into Supabase (liquidity_walls table) via liquidityStore.js.
 // Independent of any local machine — data is always live on Fly.
 import WebSocket from 'ws';
-import { upsertWall, deleteWall } from './liquidityStore.js';
+import { upsertWall, deleteWall, getWalls } from './liquidityStore.js';
 import { dbLog } from './logger.js';
 
 const SYMBOLS = (process.env.LIQUIDITY_SYMBOLS || 'BTCUSDT').toUpperCase().split(',');
@@ -31,6 +31,38 @@ function midPrice(st) {
   return bestBid || (bestAsk < Infinity ? bestAsk : null);
 }
 
+// Reconcile Supabase with the live book on startup: any wall stored in
+// Supabase that is NOT present in the current book (and was not consumed by
+// price crossing it) is a withdrawn/stale wall — delete it so the map matches
+// what the user actually sees. This clears phantom walls left over from before
+// a restart. Hit walls (price crossed them) are preserved as historical.
+async function reconcileSupabase(symbol) {
+  const st = streams[symbol];
+  if (!st) return;
+  const mid = st.lastMid;
+  let rows;
+  try {
+    rows = await getWalls(symbol);
+  } catch (e) {
+    dbLog.warn({ err: e.message, symbol }, 'liquidityCapture reconcile getWalls failed');
+    return;
+  }
+  let removed = 0;
+  for (const r of rows) {
+    const key = `${r.price.toFixed(1)}|${r.side}`;
+    const live = st.book[r.side === 'bid' ? 'bids' : 'asks'].get(r.price);
+    if (live != null && live >= MIN_BTC) continue; // still live in book → keep
+    const crossed = mid != null && (
+      (r.side === 'bid' && mid >= r.price) ||
+      (r.side === 'ask' && mid <= r.price)
+    );
+    if (crossed) continue; // consumed by price → historical, keep
+    await deleteWall(symbol, r.price, r.side);
+    removed++;
+  }
+  if (removed > 0) dbLog.info({ symbol, removed }, 'liquidityCapture reconciled stale walls');
+}
+
 function startSymbol(symbol) {
   const st = {
     book: { bids: new Map(), asks: new Map() },
@@ -50,8 +82,12 @@ function startSymbol(symbol) {
       applyLevels(st.book.bids, snap.bids);
       applyLevels(st.book.asks, snap.asks);
       st.primed = true;
+      st.lastMid = midPrice(st); // for reconcile crossed-check
       dbLog.info({ symbol, bids: st.book.bids.size, asks: st.book.asks.size }, 'liquidityCapture primed');
       scanBook(symbol);
+      // Clear phantom walls left in Supabase from before this restart.
+      reconcileSupabase(symbol).catch(e =>
+        dbLog.warn({ err: e.message, symbol }, 'liquidityCapture reconcile failed'));
     })
     .catch(e => dbLog.warn({ err: e.message }, 'liquidityCapture prime failed'));
 
