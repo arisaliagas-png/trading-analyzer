@@ -383,6 +383,22 @@ Return ONLY valid JSON (no markdown, no extra text):
       aiResult.reasoning = `[PRICE OUTSIDE OTE ZONE $${zoneLow}-$${zoneHigh}, now $${priceNow}] ` + (aiResult.reasoning || '');
     }
 
+    // 2d. Weak-regime / conflicting-signal guard
+    const regime = engine.regime || 'RANGE';
+    const weakRegime = regime === 'CHOPPY' || regime === 'RANGE';
+    const reasoningTxt = (aiResult.reasoning || '').toLowerCase();
+    const conflictWords = ['conflicting', 'caution', 'wait for', 'uncertainty', 'oversold',
+      'mean reversion', 'mean-reversion', 'cleaner momentum', 'clearer alignment', 'mixed'];
+    const hasConflict = conflictWords.some(w => reasoningTxt.includes(w));
+
+    if (aiResult.setupStatus === 'ACTIVE' && (weakRegime || hasConflict)) {
+      const why = weakRegime ? 'weak regime (' + regime + ')' : 'AI flagged conflicting/uncertain signals';
+      scannerLog.info({ symbol, scanId, regime, hasConflict }, 'Weak setup — downgrading ACTIVE -> WAIT (' + why + ')');
+      aiResult.setupStatus = 'WAIT';
+      aiResult.reasoning = '[WEAK SETUP — ' + why.toUpperCase() + '] ' + (aiResult.reasoning || '') +
+        ' Setup held as WAIT; enter only on confirmed momentum/breakout with MTF alignment.';
+    }
+
     // 3. Geometry sanity check
     const tradeDir   = ote.direction;
     const idealEntry = ote.entry?.price;
