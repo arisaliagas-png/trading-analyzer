@@ -60,14 +60,26 @@ async function fetchBinance(symbols) {
   await Promise.all(symbols.map(async (sym) => {
     const clean = sym.replace(/[\/\.\-]/g, '').replace(/P$/i, ''); // strip separators; trailing P = perpetual suffix only
     try {
-      const res = await fetch(`https://api.binance.com/api/v3/ticker/price?symbol=${clean}`);
+      // Use klines to get recent low/high (wick-aware SL/TP detection)
+      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${clean}&interval=1m&limit=3`);
       if (res.ok) {
         const data = await res.json();
-        prices[sym] = parseFloat(data.price);
+        if (Array.isArray(data) && data.length) {
+          let low = Infinity, high = -Infinity, last = 0;
+          for (const k of data) {
+            const kLow = parseFloat(k[3]);
+            const kHigh = parseFloat(k[2]);
+            const kClose = parseFloat(k[4]);
+            if (kLow < low) low = kLow;
+            if (kHigh > high) high = kHigh;
+            last = kClose;
+          }
+          prices[sym] = { price: last, low, high };
+        }
       } else if (res.status === 400) {
         // Invalid symbol — try Hyperliquid (many alts/perps live there, not Binance)
         const hl = await fetchHyperliquid([sym]);
-        if (hl[sym] != null) prices[sym] = hl[sym];
+        if (hl[sym] != null) prices[sym] = { price: hl[sym], low: hl[sym], high: hl[sym] };
       }
     } catch { /* ignore per-symbol */ }
   }));
@@ -92,7 +104,7 @@ async function fetchHyperliquid(symbols) {
       const j = await res.json();
       const bid = parseFloat(j?.levels?.[0]?.[0]?.px);
       const ask = parseFloat(j?.levels?.[1]?.[0]?.px);
-      if (bid && ask) prices[sym] = (bid + ask) / 2;
+      if (bid && ask) prices[sym] = { price: (bid + ask) / 2, low: (bid + ask) / 2, high: (bid + ask) / 2 };
     } catch { /* ignore */ }
   }
   return prices;
@@ -108,7 +120,7 @@ async function fetchTraditional(symbols) {
         const res = await fetch(`https://api.twelvedata.com/price?symbol=${encodeURIComponent(sym)}&apikey=${key}`);
         if (res.ok) {
           const data = await res.json();
-          if (data?.price) prices[sym] = parseFloat(data.price);
+          if (data?.price) prices[sym] = { price: parseFloat(data.price), low: parseFloat(data.price), high: parseFloat(data.price) };
         }
       } catch { /* ignore */ }
     }));
@@ -126,7 +138,7 @@ async function fetchTraditional(symbols) {
       if (res.ok) {
         const j = await res.json();
         const p = j?.parsed?.[0]?.price;
-        if (p) prices[sym] = parseInt(p.price) / Math.pow(10, p.expo);
+        if (p) prices[sym] = { price: parseInt(p.price) / Math.pow(10, p.expo), low: parseInt(p.price) / Math.pow(10, p.expo), high: parseInt(p.price) / Math.pow(10, p.expo) };
       }
     } catch { /* ignore */ }
   }
@@ -196,7 +208,10 @@ export async function monitorTrades() {
     // Skip if we already resolved this trade (DB write may not have committed yet)
     if (reviewedThisSession.has(trade.id)) continue;
 
-    const currentPrice = prices[trade.instrument];
+    const cur = prices[trade.instrument];
+    const currentPrice = cur?.price;
+    const curLow = cur?.low ?? currentPrice;
+    const curHigh = cur?.high ?? currentPrice;
 
     // Record price sample if we have one (pruned to last 50). We do NOT skip
     // the trade when price is missing — otherwise its history stays empty and
@@ -255,26 +270,25 @@ export async function monitorTrades() {
       const WICK_TOL = 0.0015; // 0.15%
       const tp1Band = trade.tp1 * WICK_TOL;
       const slBand  = trade.sl * WICK_TOL;
-      const historyForHit = trade.historyPrices && trade.historyPrices.length
-        ? trade.historyPrices.slice(-20).map(h => typeof h === 'object' ? h.price : h)
-        : [];
-      const hitFromHistory = (level, band) => historyForHit.some(p =>
-        isLong ? (p >= level - band) : (p <= level + band)
-      );
-      const hitTp1 = (currentPrice
-        ? (isLong ? (currentPrice >= trade.tp1 - tp1Band) : (currentPrice <= trade.tp1 + tp1Band))
-        : false) || hitFromHistory(trade.tp1, tp1Band);
-      const hitSl  = (currentPrice
-        ? (isLong ? (currentPrice <= trade.sl + slBand) : (currentPrice >= trade.sl - slBand))
-        : false) || hitFromHistory(trade.sl, slBand);
+      // Use the candle low/high (wick-aware) so a wick that touches SL/TP
+      // between polls is caught even if price closed back away.
+      const hitFromCandle = (level, band, isLow) => {
+        // isLow=true → check candle LOW against level (for LONG SL / SHORT TP)
+        // isLow=false → check candle HIGH against level (for LONG TP / SHORT SL)
+        const ref = isLow ? curLow : curHigh;
+        if (ref == null) return false;
+        return isLong
+          ? (isLow ? (ref <= level + band) : (ref >= level - band))
+          : (isLow ? (ref >= level - band) : (ref <= level + band));
+      };
+      const hitTp1 = hitFromCandle(trade.tp1, tp1Band, false); // TP touched via HIGH (LONG) / LOW (SHORT)
+      const hitSl  = hitFromCandle(trade.sl, slBand, true);    // SL touched via LOW (LONG) / HIGH (SHORT)
 
       if (trade.status === 'PARTIAL') {
         // Already partial-closed: 70% banked at TP1, SL moved to breakeven.
         // Now watching for TP2 (full win) or breakeven SL (still a win on net).
         const tp2Band = trade.tp2 * WICK_TOL;
-        const hitTp2 = (currentPrice
-          ? (isLong ? (currentPrice >= trade.tp2 - tp2Band) : (currentPrice <= trade.tp2 + tp2Band))
-          : false) || hitFromHistory(trade.tp2, tp2Band);
+        const hitTp2 = hitFromCandle(trade.tp2, tp2Band, false); // TP2 touched via HIGH (LONG) / LOW (SHORT)
         if (hitTp2) {
           reviewedThisSession.add(trade.id);
           await updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
