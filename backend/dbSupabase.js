@@ -93,9 +93,9 @@ function computeRMultiple(row, samples) {
     const origSl = row.orig_sl ?? row.origSl;
     const rr = typeof row.rr === 'number' ? row.rr
       : (tp1 != null && origSl != null && origSl !== entry
-        ? (direction === 'SHORT' ? (entry - tp1) / (entry - origSl) : (tp1 - entry) / (origSl - entry))
+        ? (direction === 'SHORT' ? (entry - tp1) / (origSl - entry) : (tp1 - entry) / (entry - origSl))
         : (tp1 != null && sl != null && sl !== entry
-          ? (direction === 'SHORT' ? (entry - tp1) / (entry - sl) : (tp1 - entry) / (entry - sl))
+          ? (direction === 'SHORT' ? (entry - tp1) / (sl - entry) : (tp1 - entry) / (entry - sl))
           : 0));
     return parseFloat((0.70 * rr).toFixed(2));
   }
