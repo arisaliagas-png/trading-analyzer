@@ -221,6 +221,16 @@ export async function monitorTrades() {
     const isLong = trade.direction === 'LONG';
 
     if (trade.status === 'PENDING') {
+      // ── Confirmation gate ───────────────────────────────────────────────────
+      // Setups the scanner emitted as WAIT/PENDING due to weak/conflicting signals
+      // (bearish CVD into a LONG, lesson veto, flow downgrade, etc.) carry a
+      // [NEEDS_CONFIRMATION] marker. They must NOT be auto-activated just because
+      // price ticked into the OTE zone — that was the bug that fired bearish-CVD
+      // LONGs which then stopped out. They only become tradeable when a fresh
+      // scanner run upgrades them to ACTIVE (marker removed).
+      if ((trade.reasoning || '').includes('[NEEDS_CONFIRMATION]')) {
+        continue; // leave as PENDING; wait for scanner re-confirmation
+      }
       // Activate when price enters the entry zone — either right now OR at any
       // point in recorded history. Latches entered_zone=1 so a restart or an
       // empty history can never leave the trade stuck in PENDING again.

@@ -612,7 +612,7 @@ Return ONLY valid JSON (no markdown, no extra text):
         status:       effectiveStatus,
         grade:        finalGrade,
         pct:          finalPct,
-        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (flowReason ? `[FLOW] ${flowReason} ` : '') + (obNote ? `${obNote} ` : '') + (aiResult.reasoning || ''),
+        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (flowReason ? `[FLOW] ${flowReason} ` : '') + (obNote ? `${obNote} ` : '') + ((aiResult.setupStatus === 'WAIT') || veto.veto || flowDowngrade || atrFloorDowngrade || macroDowngrade ? '[NEEDS_CONFIRMATION] ' : '') + (aiResult.reasoning || ''),
         timestamp:    new Date().toISOString(),
         // ── Macro overlay (F&G + DXY) — PTS-style sentiment/headwind filter ──
         fgValue:      macro?.fgValue ?? null,
@@ -632,6 +632,13 @@ Return ONLY valid JSON (no markdown, no extra text):
           ? (ote.entry?.high ?? ote.entry?.price)
           : (ote.entry?.low ?? ote.entry?.price),
         atr14:        atr14 ?? null,
+        // needsConfirmation: TRUE when the scanner emitted this as WAIT/PENDING due
+        // to weak/conflicting signals (regime, CVD opposition, lesson veto, flow).
+        // Such setups must NOT be auto-activated by the trade tracker when price
+        // merely enters the zone — they need a fresh scanner run that upgrades them
+        // to ACTIVE. Without this flag the tracker was auto-firing bearish-CVD LONGs
+        // the moment price ticked into the OTE zone, then they got stopped out.
+        needsConfirmation: (aiResult.setupStatus === 'WAIT') || veto.veto || flowDowngrade || atrFloorDowngrade || macroDowngrade,
         // Risk metadata persisted inside indicator_snapshot JSON (Supabase has no
         // dedicated columns for these) so the UI can show ATR-floor + invalidation.
         indicators: [
