@@ -821,7 +821,8 @@ export async function getActiveSignals() {
       boardClusterDir:    board.clusterDir ?? null,
       boardClusterPct:    board.clusterPct ?? null,
       boardCorrelationRisk: board.correlationRisk ?? false,
-      boardNote:      board.note ?? null
+      boardNote:      board.note ?? null,
+      is_new:         t.is_new ?? (t.isNew ? 1 : 0)
     };
   });
 
