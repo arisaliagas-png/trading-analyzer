@@ -49,6 +49,7 @@ function hydrate(row) {
     entryHigh:   row.entry_high,
     entryPrice:  row.entry_price,
     sl:          row.sl,
+    origSl:      row.orig_sl,
     tp1:         row.tp1,
     tp2:         row.tp2,
     targets:     [row.tp1, row.tp2].filter(v => v != null),
@@ -86,14 +87,17 @@ function computeRMultiple(row, samples) {
   if (row.status === 'FAILED') return -1.0;
 
   // PARTIAL = 70% closed at TP1, SL moved to breakeven, 30% trails to TP2.
-  // Net realized R = 0.70 × (TP1 distance in R). If TP1 is missing, fall back to 0.
+  // Net realized R = 0.70 × (original TP1 R:R). Use origSl for the risk base
+  // (the live `sl` is now breakeven = entry, which would make risk 0).
   if (row.status === 'PARTIAL') {
-    if (tp1 == null) return 0;
-    const risk = Math.abs(entry - sl);
-    const tp1R = risk > 0
-      ? (direction === 'SHORT' ? (entry - tp1) / risk : (tp1 - entry) / risk)
-      : 0;
-    return parseFloat((0.70 * tp1R).toFixed(2));
+    const origSl = row.orig_sl ?? row.origSl;
+    const rr = typeof row.rr === 'number' ? row.rr
+      : (tp1 != null && origSl != null && origSl !== entry
+        ? (direction === 'SHORT' ? (entry - tp1) / (entry - origSl) : (tp1 - entry) / (origSl - entry))
+        : (tp1 != null && sl != null && sl !== entry
+          ? (direction === 'SHORT' ? (entry - tp1) / (entry - sl) : (tp1 - entry) / (entry - sl))
+          : 0));
+    return parseFloat((0.70 * rr).toFixed(2));
   }
 
   if (sl == null) return null;
@@ -131,7 +135,7 @@ export async function registerTrade(setup) {
   const { error } = await (await client()).from('trades').upsert({
     id: setup.id, instrument: setup.instrument, timeframe: setup.timeframe || null,
     direction, entry_low: setup.entry.low ?? null, entry_high: setup.entry.high ?? null,
-    entry_price: setup.entry.price, sl: setup.sl ?? null, tp1: setup.targets?.[0] ?? null,
+    entry_price: setup.entry.price, sl: setup.sl ?? null, orig_sl: setup.sl ?? null, tp1: setup.targets?.[0] ?? null,
     tp2: setup.targets?.[1] ?? null, rr: setup.rr ?? null, status: setup.status || 'PENDING',
     grade: setup.grade ?? null, confidence_pct: setup.pct ?? null, reasoning: setup.reasoning ?? null,
     indicator_snapshot: JSON.stringify(setup.indicators || []), strategy: setup.strategy ?? null,

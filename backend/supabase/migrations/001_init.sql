@@ -12,6 +12,7 @@ CREATE TABLE IF NOT EXISTS trades (
   entry_high        FLOAT8,
   entry_price       FLOAT8,
   sl                FLOAT8,
+  orig_sl           FLOAT8,         -- initial SL before any BE move (for R math)
   tp1               FLOAT8,
   tp2               FLOAT8,
   rr                FLOAT8,
