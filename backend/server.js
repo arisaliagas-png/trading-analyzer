@@ -13,7 +13,7 @@ import { fetchAssetNews } from './newsSearch.js';
 import { registerTradeSetup, startTracker, triggerWinReview } from './tradeTracker.js';
 import { getCapitalFlow } from './capitalFlow.js';
 import { startScanner, getActiveSignals, triggerManualScan, getScanState } from './scanner.js';
-import { migrateFromJSON, getAllTrades, getAllLessons, getLessonsFor, getAlerts, markAlertsSeen } from './db.js';
+import { migrateFromJSON, getAllTrades, getTradeById, getAllLessons, getLessonsFor, getAlerts, markAlertsSeen } from './db.js';
 import { computeAnalytics } from './analytics.js';
 import { serverLog } from './logger.js';
 import { startLiquidityCapture } from './liquidityCapture.js';
