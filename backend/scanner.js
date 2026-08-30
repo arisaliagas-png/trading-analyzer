@@ -580,6 +580,27 @@ Return ONLY valid JSON (no markdown, no extra text):
       }
     } catch { /* non-fatal */ }
 
+    // 4f. HARD CVD VETO (source-of-truth order flow).
+    // The live order-book CVD bias is the real taker flow — if it opposes the
+    // intended direction, the setup is statistically a fade-of-flow trap (the
+    // 7/7 losing LONGs all had BEAR CVD + BULL_TRAP in their reasoning). We do
+    // NOT downgrade to PENDING (which the tracker could later auto-activate) —
+    // we HARD REJECT so a bearish-CVD LONG (or bullish-CVD SHORT) is never emitted.
+    // This blocks fake wicks/momentum that aren't backed by real order flow.
+    // Fallback to the candle-derived CVD bias if the live book is unavailable,
+    // so a missing snapshot never silently lets a flow-opposed setup through.
+    const flowBias = liveCvdBias || engine.cvdBias || null;
+    if (flowBias === 'BEAR' && tradeDir === 'LONG') {
+      scannerLog.warn({ symbol, scanId, liveCvdBias, engineCvd: engine.cvdBias, tradeDir }, 'HARD CVD VETO — BEAR order-book flow opposes LONG; rejecting setup');
+      await removeSignalByInstrument(symbol, tradeDir);
+      return null;
+    }
+    if (flowBias === 'BULL' && tradeDir === 'SHORT') {
+      scannerLog.warn({ symbol, scanId, liveCvdBias, engineCvd: engine.cvdBias, tradeDir }, 'HARD CVD VETO — BULL order-book flow opposes SHORT; rejecting setup');
+      await removeSignalByInstrument(symbol, tradeDir);
+      return null;
+    }
+
     // 5. Accept grades ≥ C and statuses ACTIVE/PENDING.
     // WAIT is treated as PENDING (kept in DB for re-scan) — the engine isn't
     // ready yet but the setup is real, so we don't delete it.
