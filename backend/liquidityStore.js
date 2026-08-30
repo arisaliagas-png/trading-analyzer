@@ -4,12 +4,19 @@
 // stream runs INSIDE the Fly server and upserts here continuously.
 import { dbLog } from './logger.js';
 
-// Lazily reuse the Supabase client from dbSupabase.js
+const SUPABASE_URL = process.env.SUPABASE_URL;
+const SUPABASE_ANON_KEY = process.env.SUPABASE_ANON_KEY;
+const SUPABASE_SERVICE_ROLE_KEY = process.env.SUPABASE_SERVICE_ROLE_KEY;
+
 let _client = null;
 async function client() {
   if (!_client) {
-    const { client: supaClient } = await import('./dbSupabase.js');
-    _client = await supaClient();
+    if (!SUPABASE_URL || !SUPABASE_ANON_KEY) {
+      throw new Error('SUPABASE_URL and SUPABASE_ANON_KEY must be set');
+    }
+    const { createClient } = await import('@supabase/supabase-js');
+    const key = SUPABASE_SERVICE_ROLE_KEY || SUPABASE_ANON_KEY;
+    _client = createClient(SUPABASE_URL, key, { auth: { persistSession: false } });
   }
   return _client;
 }
