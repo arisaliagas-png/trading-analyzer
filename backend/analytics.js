@@ -141,7 +141,7 @@ function personalBests(trades) {
     totalR,
     bestR,
     worstR,
-    closedCount: closed.length
+    closedCount: streakPool.length
   };
 }
 
