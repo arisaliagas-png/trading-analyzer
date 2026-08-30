@@ -545,6 +545,19 @@ async function runBacktest(symbol, limit = 1000, opts = {}, cachedKlines = null)
     }
     cFilters++;
 
+    // ── FIRST LAW gate (mirror of live tracker) ──
+    // Require the candle CLOSE at bar i to be INSIDE the OTE pullback zone —
+    // price must come TO the zone (pullback/retest that held), not wick through
+    // it on momentum. For LONG the zone is swingL..p618 (price pulled back down
+    // into the OTE buy zone); for SHORT it is p786..swingH (price rallied up into
+    // the OTE sell zone). A 2.5% near-zone tolerance mirrors scanner.nearZonePct.
+    const pullLo = dir === 'LONG' ? Math.min(swingL, p618) : Math.min(p786, swingH);
+    const pullHi = dir === 'LONG' ? Math.max(swingL, p618) : Math.max(p786, swingH);
+    const closeI = close[i];
+    const closeInZone = (closeI >= pullLo && closeI <= pullHi) ||
+                        (Math.abs(closeI - entry) / entry <= 0.025);
+    if (!closeInZone) continue;
+
     // Dynamic SL/TP (Pine: dynSL_Long = close - atr*2, dynTP1 = close + (close-dynSL)*1.5)
     const atr = atrArr[i];
     let dynSL, dynTP1, dynTP2;
