@@ -241,6 +241,18 @@ const TRANSLATIONS = {
 // breaks on Fly because the proxy exposes the API on the default HTTPS port.
 const API_BASE = '';
 
+// All backend timestamps are stored/returned in UTC. Format them explicitly as
+// UTC so the UI never silently shows them in local browser time (which caused a
+// SOLUSDT confusion where 20:45 UTC showed as 11:45 μ.μ. local).
+function fmtUTC(iso, opts = {}) {
+  if (!iso) return '';
+  const d = new Date(iso);
+  if (isNaN(d)) return '';
+  return d.toLocaleString('en-GB', { timeZone: 'UTC', hour12: false, ...opts });
+}
+const fmtUTCDate = (iso) => fmtUTC(iso, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' UTC';
+const fmtUTCTime = (iso) => fmtUTC(iso, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' UTC';
+
 export default function App() {
   const [e, setE] = useState(() => localStorage.getItem('trading_analyzer_lang') || 'el');
   const [l, setL] = useState('analyzer');
@@ -1379,7 +1391,7 @@ export default function App() {
                       <span style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
                         {card.createdAt && (
                           <span style={{ fontSize: '0.7rem', color: '#94a3b8' }}>
-                            {new Date(card.createdAt).toLocaleString('el-GR', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' })}
+                            {fmtUTCDate(card.createdAt)}
                           </span>
                         )}
                         <span
@@ -2055,7 +2067,7 @@ export default function App() {
               {/* Anchor & Timestamp Info */}
               <div className="cf-footer" style={{ textAlign: 'center', fontSize: '0.8rem', color: '#64748b', marginTop: '1.5rem' }}>
                 {lt.btcUsd && `BTC/USD anchor: $${lt.btcUsd.toLocaleString('el-GR', { minimumFractionDigits: 2 })} · `}
-                Generated: {new Date(lt.generatedAt).toLocaleTimeString('el-GR', { hour: 'numeric', minute: '2-digit', second: '2-digit', hour12: false })}{new Date(lt.generatedAt).getHours() >= 12 ? ' μ.μ.' : ' π.μ.'}
+                Generated: {fmtUTCTime(lt.generatedAt)}
               </div>
             </div>
           )}
@@ -2080,7 +2092,7 @@ export default function App() {
               </button>
               <div className="scanner-last-update">
                 <span className="update-dot"></span>
-                <span>Last updated: {Bt.lastScanAt ? new Date(Bt.lastScanAt).toLocaleTimeString() : 'Never'}</span>
+                <span>Last updated: {Bt.lastScanAt ? fmtUTCTime(Bt.lastScanAt) : 'Never'}</span>
               </div>
             </div>
           </div>
@@ -2153,7 +2165,7 @@ export default function App() {
 
                   <div className="signal-footer">
                     <span className="signal-tf">TF: {sig.timeframe}</span>
-                    <span>{new Date(sig.timestamp).toLocaleTimeString()}</span>
+                    <span>{fmtUTCTime(sig.timestamp)}</span>
                   </div>
                 </div>
               ))}
@@ -2405,14 +2417,7 @@ export default function App() {
                               {trade.rr ? `${trade.rr}x` : '—'}
                             </td>
                             <td style={{ padding: '0.75rem 1rem', color: '#94a3b8' }}>
-                              {trade.closedAt ? new Date(trade.closedAt).toLocaleString('el-GR', {
-                                day: 'numeric',
-                                month: 'numeric',
-                                year: 'numeric',
-                                hour: 'numeric',
-                                minute: '2-digit',
-                                hour12: true
-                              }).replace('π.μ.', 'π.μ.').replace('μ.μ.', 'μ.μ.') : '—'}
+                              {trade.closedAt ? fmtUTCDate(trade.closedAt) : '—'}
                             </td>
                           </tr>
                         ))}
