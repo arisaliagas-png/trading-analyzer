@@ -178,7 +178,7 @@ function gradeCalibration(trades) {
 // ─────────────────────────────────────────────
 export async function computeAnalytics() {
   const allTrades = await getAllTrades();
-  const closed    = allTrades.filter(t => t.status === 'SUCCESS' || t.status === 'FAILED');
+  const closed    = allTrades.filter(t => ['SUCCESS', 'FAILED', 'PARTIAL'].includes(t.status));
   const active    = allTrades.filter(t => t.status === 'ACTIVE');
   const pending   = allTrades.filter(t => t.status === 'PENDING');
 
@@ -282,7 +282,7 @@ export async function computeAnalytics() {
         direction:  t.direction,
         grade:      t.grade,
         status:     t.status,
-        rr:         t.rr,
+        rr:         (typeof t.rMultiple === 'number') ? t.rMultiple : (t.rr ?? null),
         closedAt:   t.closedAt
       }))
     }

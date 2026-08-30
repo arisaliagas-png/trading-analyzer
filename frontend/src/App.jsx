@@ -2367,8 +2367,8 @@ export default function App() {
                                 borderRadius: '4px',
                                 fontSize: '0.75rem',
                                 fontWeight: 700,
-                                backgroundColor: trade.status === 'SUCCESS' ? '#10b98122' : '#ef444422',
-                                color: trade.status === 'SUCCESS' ? '#10b981' : '#ef4444'
+                                backgroundColor: trade.status === 'SUCCESS' ? '#10b98122' : trade.status === 'PARTIAL' ? '#a855f722' : '#ef444422',
+                                color: trade.status === 'SUCCESS' ? '#10b981' : trade.status === 'PARTIAL' ? '#a855f7' : '#ef4444'
                               }}>
                                 {trade.status}
                               </span>
