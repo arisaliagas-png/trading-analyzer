@@ -60,7 +60,25 @@ async function applyLessonVeto({ engine, tradeDir, liveCvdBias }) {
                     (tradeDir === 'SHORT' && sqDir === 'BULLISH');
     if (opposes) {
       violated.push('R2_SQUEEZE');
-      reasons.push(`Squeeze RELEASED+${sqDir} opposes ${tradeDir} (lesson #4/#6/#7/#10/#12)`);
+      reasons.push(`Squeeze RELEASED ${sqDir} opposes ${tradeDir} — fade-of-flow trap (lesson #6)`);
+    }
+  }
+
+  // R5 — PTSwizard Squeeze Gate: SQUEEZED+BEARISH SHORT requires ALL confirmations
+  //   IF squeeze=SQUEEZED+BEARISH AND direction=SHORT:
+  //     REQUIRE (IDC=SHORT_CONFIRMED OR NEUTRAL) AND (CVD=BEAR) AND (MFI<50 OR CMF<0)
+  //   ELSE: veto (SKIP). Prevents false SHORTs from lone SQUEEZED+BEARISH signal.
+  if (sq.state === 'SQUEEZED' && sq.direction === 'BEARISH' && tradeDir === 'SHORT') {
+    const idcStatus = engine.idcStatus ?? 'NEUTRAL';
+    const idcOk = idcStatus === 'SHORT_CONFIRMED' || idcStatus === 'NEUTRAL';
+    const cvdBias = liveCvdBias || engine.cvdBias || 'NEUTRAL';
+    const cvdOk = cvdBias === 'BEAR';
+    const mfi = engine.mfi ?? 50;
+    const cmf = engine.cmf ?? 0;
+    const momOk = (mfi < 50) || (cmf < 0);
+    if (!idcOk || !cvdOk || !momOk) {
+      violated.push('R5_SQUEEZE_GATE');
+      reasons.push(`SQUEEZED+BEARISH SHORT missing confirmations: IDC=${idcStatus}, CVD=${cvdBias}, MFI=${mfi.toFixed(1)}, CMF=${cmf.toFixed(3)} — SKIP (PTSwizard rule)`);
     }
   }
 
