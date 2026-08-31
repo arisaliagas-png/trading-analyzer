@@ -763,10 +763,13 @@ export function calculateExecutionSetup({
     const roundIn = (v, dir) => dir > 0
       ? Math.ceil(v * f) / f   // low: round up so zone stays >= Fib bound
       : Math.floor(v * f) / f; // high: round down so zone stays <= Fib bound
+    const minZoneWidth = price * 0.001; // 0.1% minimum zone width (prevents zero-width zones when ATR≈0)
+    const lo = parseFloat(roundIn(Math.min(low, high), 1).toFixed(d));
+    const hi = parseFloat(roundIn(Math.max(low, high), -1).toFixed(d));
     return {
       price: parseFloat(price.toFixed(d)),
-      low: parseFloat(roundIn(Math.min(low, high), 1).toFixed(d)),
-      high: parseFloat(roundIn(Math.max(low, high), -1).toFixed(d))
+      low:  Math.min(lo, price - minZoneWidth),
+      high: Math.max(hi, price + minZoneWidth),
     };
   };
 
@@ -846,6 +849,9 @@ export function calculateExecutionSetup({
       const tp1 = currentPrice + 2.0 * atr;   // Min 1.33:1 R:R
       const tp2 = currentPrice + 1.5 * (tp1 - currentPrice);   // TP2 = TP1 + 50% extension (realistic, hittable)
       const capped = capTargets('LONG', entry.price, entry.low * 0.998, null, sl, tp1, tp2);
+      if (capped.sl >= entry.low) {
+        return null; // SL inside entry zone — cannot ship this setup
+      }
       return { strategy: 'MOMENTUM_BREAKOUT', direction: 'LONG', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: '🚀 TRENDING MOMENTUM (Market Entry via ATR Breakout)' };
     } else if (!isUpward && cvdBias === 'BEAR') {
       // Bearish Breakout SHORT
@@ -853,8 +859,11 @@ export function calculateExecutionSetup({
       const entry = formatZone(idealPrice, idealPrice - 0.5 * atr, idealPrice + 0.5 * atr);
       const sl = currentPrice + 1.5 * atr;
       const tp1 = currentPrice - 2.0 * atr;   // Min 1.33:1 R:R
-      const tp2 = currentPrice - 1.5 * (currentPrice - tp1);   // TP2 = TP1 - 50% extension (realistic, hittable)
+      const tp2 = currentPrice - 1.5 * (currentPrice - tp1);   // TP2 = TP1 + 50% extension (realistic, hittable)
       const capped = capTargets('SHORT', entry.price, null, entry.high * 1.002, sl, tp1, tp2);
+      if (capped.sl <= entry.high) {
+        return null; // SL inside entry zone — cannot ship this setup
+      }
       return { strategy: 'MOMENTUM_BREAKOUT', direction: 'SHORT', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: '🚀 TRENDING MOMENTUM (Market Entry via ATR Breakout)' };
     }
   }
@@ -881,6 +890,9 @@ export function calculateExecutionSetup({
         const tp1 = (tp1Raw - idealPrice) >= (1.5 * riskDist) ? tp1Raw : idealPrice + 1.5 * riskDist;
         const tp2 = idealPrice + 1.5 * (tp1 - idealPrice); // TP2 = TP1 + 50% extension (realistic, hittable)
         const capped = capTargets('LONG', entry.price, entry.low * 0.998, null, sl, tp1, tp2);
+        if (capped.sl >= entry.low) {
+          return null; // SL inside entry zone — cannot ship this setup
+        }
         return { strategy: 'LIQUIDITY_SHIELD', direction: 'LONG', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Bid Wall at $${f(closestWall.price)})` };
       } else if (closestWall.side === 'ask' && !isUpward) {
         // Sell resistance shield (Short)
@@ -888,10 +900,13 @@ export function calculateExecutionSetup({
         const entry = formatZone(idealPrice, idealPrice - 0.5 * atr, closestWall.price);
         const sl = closestWall.price + tick * 4;
         const riskDist = sl - idealPrice;
-        const tp1Raw = swingLow;
-        const tp1 = (idealPrice - tp1Raw) >= (1.5 * riskDist) ? tp1Raw : idealPrice - 1.5 * riskDist;
-        const tp2 = idealPrice - 1.5 * (idealPrice - tp1); // TP2 = TP1 - 50% extension (realistic, hittable)
+        const tp1Raw = swingHigh;
+        const tp1 = (tp1Raw - idealPrice) >= (1.5 * riskDist) ? tp1Raw : idealPrice - 1.5 * riskDist;
+        const tp2 = idealPrice - 1.5 * (idealPrice - tp1); // TP2 = TP1 + 50% extension (realistic, hittable)
         const capped = capTargets('SHORT', entry.price, null, entry.high * 1.002, sl, tp1, tp2);
+        if (capped.sl <= entry.high) {
+          return null; // SL inside entry zone — cannot ship this setup
+        }
         return { strategy: 'LIQUIDITY_SHIELD', direction: 'SHORT', entry, sl: capped.sl, tp1: capped.tp1, tp2: capped.tp2, note: `🛡️ LIQUIDITY SHIELD (Protected Entry front-running Mega Ask Wall at $${f(closestWall.price)})` };
       }
     }
