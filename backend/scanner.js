@@ -485,9 +485,7 @@ Return ONLY valid JSON (no markdown, no extra text):
     if (atr14 != null && atr14 > 0) {
       const slAtrRatio = slRisk / atr14;
       if (slAtrRatio < 1.0) {
-        scannerLog.warn({ symbol, scanId, slRisk, atr14, ratio: slAtrRatio.toFixed(2) }, 'ATR-FLOOR VETO — SL < 1.0×ATR (structurally too tight)');
-        await removeSignalByInstrument(symbol, tradeDir);
-        return null;
+        downgradeReasons.push(`ATR-FLOOR VETO — SL < 1.0×ATR (structurally too tight, ratio=${slAtrRatio.toFixed(2)})`);
       } else if (slAtrRatio < 1.2) {
         atrFloorDowngrade = true;
         atrFloorReason = `SL ${(slAtrRatio * 100).toFixed(0)}% of ATR — below 1.2×ATR structural floor (≥1.2×ATR required)`;
@@ -628,7 +626,7 @@ Return ONLY valid JSON (no markdown, no extra text):
       ? 'PENDING'
       : (aiResult.setupStatus === 'WAIT' ? 'PENDING'
         : (aiResult.setupStatus === 'ACTIVE' ? 'ACTIVE' : 'PENDING'));
-    if (aiResult.confidenceGrade !== 'D') {
+    if (true) {
 
       // ── [4A] Deterministic position sizing (no AI involvement) ──
       const sizing = calcPositionSize(
