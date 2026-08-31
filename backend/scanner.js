@@ -483,14 +483,14 @@ Return ONLY valid JSON (no markdown, no extra text):
     let atrFloorReason = null;
     if (atr14 != null && atr14 > 0) {
       const slAtrRatio = slRisk / atr14;
-      if (slAtrRatio < 0.8) {
-        scannerLog.warn({ symbol, scanId, slRisk, atr14, ratio: slAtrRatio.toFixed(2) }, 'ATR-FLOOR VETO — SL < 0.8×ATR (structurally too tight)');
+      if (slAtrRatio < 1.0) {
+        scannerLog.warn({ symbol, scanId, slRisk, atr14, ratio: slAtrRatio.toFixed(2) }, 'ATR-FLOOR VETO — SL < 1.0×ATR (structurally too tight)');
         await removeSignalByInstrument(symbol, tradeDir);
         return null;
-      } else if (slAtrRatio < 1.0) {
+      } else if (slAtrRatio < 1.2) {
         atrFloorDowngrade = true;
-        atrFloorReason = `SL ${(slAtrRatio * 100).toFixed(0)}% of ATR — below 1×ATR structural floor (≥1×ATR required)`;
-        scannerLog.warn({ symbol, scanId, slRisk, atr14, ratio: slAtrRatio.toFixed(2) }, 'ATR-FLOOR DOWNGRADE — SL < 1×ATR');
+        atrFloorReason = `SL ${(slAtrRatio * 100).toFixed(0)}% of ATR — below 1.2×ATR structural floor (≥1.2×ATR required)`;
+        scannerLog.warn({ symbol, scanId, slRisk, atr14, ratio: slAtrRatio.toFixed(2) }, 'ATR-FLOOR DOWNGRADE — SL < 1.2×ATR');
       }
     }
 
@@ -749,8 +749,33 @@ Return ONLY valid JSON (no markdown, no extra text):
 
       return signal;
     } else {
-      scannerLog.info({ symbol, scanId, status: aiResult.setupStatus, grade: aiResult.confidenceGrade }, 'Rejected by AI');
-      await removeSignalByInstrument(symbol, tradeDir);
+      // Grade D: downgrade to PENDING with [NEEDS_CONFIRMATION] instead of hard reject
+      const pendingSignal = {
+        id: `${symbol}_${tradeDir}`,
+        symbol,
+        timeframe: SCAN_TIMEFRAME,
+        direction: tradeDir,
+        entry: ote.entry,
+        sl: ote.sl,
+        tp1: ote.tp1,
+        tp2: ote.tp2,
+        targets: [ote.tp1, ote.tp2],
+        rr: parseFloat((signalRr ?? rr).toFixed(2)),
+        status: 'PENDING',
+        grade: 'D',
+        pct: finalPct,
+        confidenceLabel: confLabel,
+        reasoning: `[SCANNER] [NEEDS_CONFIRMATION] Grade D (${aiResult.confidenceGrade}) — insufficient AI confidence, waiting for confirmation`,
+        timestamp: new Date().toISOString(),
+        fgValue: macro?.fgValue ?? null,
+        dxyDirection: macro?.dxyDirection ?? null,
+        dxyChange: macro?.dxyChange ?? null,
+        doi1h: doi1h ?? null,
+        flowQuality: flowQuality ?? 'N/A',
+        positionSize: sizing?.positionSize ?? null,
+      };
+      await upsertSignal(pendingSignal);
+      scannerLog.info({ symbol, scanId, grade: 'D', pct: finalPct }, 'Grade D — downgraded to PENDING with NEEDS_CONFIRMATION');
     }
 
   } catch (e) {
