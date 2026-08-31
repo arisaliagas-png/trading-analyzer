@@ -227,6 +227,7 @@ function buildIndicatorContext(ind, symbol, timeframe) {
 // ─────────────────────────────────────────────
 async function scanAsset(symbol, scanId, macro = null) {
   try {
+    const downgradeReasons = []; // downgrades that keep setup visible as PENDING
     // Skip if a trade is already being tracked for this symbol
     if (await hasActiveTrade(symbol)) {
       scannerLog.info({ symbol, scanId }, 'Skipping — active/pending trade already tracked');
@@ -614,20 +615,16 @@ Return ONLY valid JSON (no markdown, no extra text):
     // so a missing snapshot never silently lets a flow-opposed setup through.
     const flowBias = liveCvdBias || engine.cvdBias || null;
     if (flowBias === 'BEAR' && tradeDir === 'LONG') {
-      scannerLog.warn({ symbol, scanId, liveCvdBias, engineCvd: engine.cvdBias, tradeDir }, 'HARD CVD VETO — BEAR order-book flow opposes LONG; rejecting setup');
-      await removeSignalByInstrument(symbol, tradeDir);
-      return null;
+      downgradeReasons.push(`HARD CVD VETO — BEAR order-book flow opposes LONG (liveCvdBias=${liveCvdBias}, engineCvd=${engine.cvdBias})`);
     }
     if (flowBias === 'BULL' && tradeDir === 'SHORT') {
-      scannerLog.warn({ symbol, scanId, liveCvdBias, engineCvd: engine.cvdBias, tradeDir }, 'HARD CVD VETO — BULL order-book flow opposes SHORT; rejecting setup');
-      await removeSignalByInstrument(symbol, tradeDir);
-      return null;
+      downgradeReasons.push(`HARD CVD VETO — BULL order-book flow opposes SHORT (liveCvdBias=${liveCvdBias}, engineCvd=${engine.cvdBias})`);
     }
 
     // 5. Accept grades ≥ C and statuses ACTIVE/PENDING.
     // WAIT is treated as PENDING (kept in DB for re-scan) — the engine isn't
     // ready yet but the setup is real, so we don't delete it.
-    const effectiveStatus = (veto.veto || atrFloorDowngrade || macroDowngrade || flowDowngrade || false)
+    const effectiveStatus = (veto.veto || atrFloorDowngrade || macroDowngrade || flowDowngrade || downgradeReasons.length > 0)
       ? 'PENDING'
       : (aiResult.setupStatus === 'WAIT' ? 'PENDING'
         : (aiResult.setupStatus === 'ACTIVE' ? 'ACTIVE' : 'PENDING'));
@@ -658,7 +655,7 @@ Return ONLY valid JSON (no markdown, no extra text):
         grade:        finalGrade,
         pct:          finalPct,
         confidenceLabel: confLabel,
-        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (false ? `[PENDING] ${downgradeReasonsArr.join('; ')} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (flowReason ? `[FLOW] ${flowReason} ` : '') + (obNote ? `${obNote} ` : '') + ((aiResult.setupStatus === 'WAIT') || veto.veto || flowDowngrade || atrFloorDowngrade || macroDowngrade || false ? '[NEEDS_CONFIRMATION] ' : '') + (aiResult.reasoning || ''),
+        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (downgradeReasons.length > 0 ? `[PENDING] ${downgradeReasons.join('; ')} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (flowReason ? `[FLOW] ${flowReason} ` : '') + (obNote ? `${obNote} ` : '') + ((aiResult.setupStatus === 'WAIT') || veto.veto || flowDowngrade || atrFloorDowngrade || macroDowngrade || downgradeReasons.length > 0 ? '[NEEDS_CONFIRMATION] ' : '') + (aiResult.reasoning || ''),
         timestamp:    new Date().toISOString(),
         // ── Macro overlay (F&G + DXY) — PTS-style sentiment/headwind filter ──
         fgValue:      macro?.fgValue ?? null,
