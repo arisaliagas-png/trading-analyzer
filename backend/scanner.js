@@ -367,7 +367,9 @@ Return ONLY valid JSON (no markdown, no extra text):
     // (e.g. schema mismatch swallowed upstream), fall back to the quant engine's
     // own computed grade so the UI never shows a blank "Grade %".
     const finalGrade = aiResult.confidenceGrade ?? engine.confidenceGrade ?? 'C';
-    const finalPct   = adjustedConf; // hit-rate-adjusted confidence with confluence bonus
+    const adjustedConf = Math.min(100, (aiResult.confidencePct ?? engine.confidencePct ?? 50) + (obConfluence * 5)); // fallback when R7 removed
+    const confLabel = adjustedConf >= 80 ? 'ELITE' : adjustedConf >= 65 ? 'STRONG' : adjustedConf >= 50 ? 'VALID' : 'WEAK';
+    const finalPct   = adjustedConf;
 
     scannerLog.info({ symbol, scanId, status: aiResult.setupStatus, grade: finalGrade, pct: finalPct, label: confLabel }, 'AI verification result');
 
