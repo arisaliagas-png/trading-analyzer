@@ -64,7 +64,7 @@ async function applyLessonVeto({ engine, tradeDir, liveCvdBias }) {
     }
   }
 
-  // R5 — PTSwizard Squeeze Gate: SQUEEZED+BEARISH SHORT requires ALL confirmations
+  // R5 — PTSwizard Squeeze Gate (SHORT): SQUEEZED+BEARISH SHORT requires ALL confirmations
   //   IF squeeze=SQUEEZED+BEARISH AND direction=SHORT:
   //     REQUIRE (IDC=SHORT_CONFIRMED OR NEUTRAL) AND (CVD=BEAR) AND (MFI<50 OR CMF<0)
   //   ELSE: veto (SKIP). Prevents false SHORTs from lone SQUEEZED+BEARISH signal.
@@ -79,6 +79,24 @@ async function applyLessonVeto({ engine, tradeDir, liveCvdBias }) {
     if (!idcOk || !cvdOk || !momOk) {
       violated.push('R5_SQUEEZE_GATE');
       reasons.push(`SQUEEZED+BEARISH SHORT missing confirmations: IDC=${idcStatus}, CVD=${cvdBias}, MFI=${mfi.toFixed(1)}, CMF=${cmf.toFixed(3)} — SKIP (PTSwizard rule)`);
+    }
+  }
+
+  // R5B — PTSwizard Squeeze Gate (LONG mirror): SQUEEZED+BULLISH LONG requires ALL confirmations
+  //   IF squeeze=SQUEEZED+BULLISH AND direction=LONG:
+  //     REQUIRE (IDC=LONG_CONFIRMED OR NEUTRAL) AND (CVD=BULL) AND (MFI>50 OR CMF>0)
+  //   ELSE: veto (SKIP). Prevents false LONGs from lone SQUEEZED+BULLISH signal.
+  if (sq.state === 'SQUEEZED' && sq.direction === 'BULLISH' && tradeDir === 'LONG') {
+    const idcStatus = engine.idcStatus ?? 'NEUTRAL';
+    const idcOk = idcStatus === 'LONG_CONFIRMED' || idcStatus === 'NEUTRAL';
+    const cvdBias = liveCvdBias || engine.cvdBias || 'NEUTRAL';
+    const cvdOk = cvdBias === 'BULL';
+    const mfi = engine.mfi ?? 50;
+    const cmf = engine.cmf ?? 0;
+    const momOk = (mfi > 50) || (cmf > 0);
+    if (!idcOk || !cvdOk || !momOk) {
+      violated.push('R5B_SQUEEZE_GATE');
+      reasons.push(`SQUEEZED+BULLISH LONG missing confirmations: IDC=${idcStatus}, CVD=${cvdBias}, MFI=${mfi.toFixed(1)}, CMF=${cmf.toFixed(3)} — SKIP (PTSwizard rule)`);
     }
   }
 
