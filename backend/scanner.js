@@ -65,79 +65,6 @@ async function applyLessonVeto({ engine, tradeDir, liveCvdBias }) {
     }
   }
 
-  // R5 — PTSwizard Squeeze Gate (SHORT): SQUEEZED+BEARISH SHORT downgrade when missing confirmations
-  //   IF squeeze=SQUEEZED+BEARISH AND direction=SHORT:
-  //     REQUIRE (IDC=SHORT_CONFIRMED OR NEUTRAL) AND (CVD=BEAR) AND (MFI<50 OR CMF<0)
-  //   ELSE: downgrade to PENDING with [NEEDS_CONFIRMATION]. Prevents false SHORTs but keeps setup visible.
-  if (sq.state === 'SQUEEZED' && sq.direction === 'BEARISH' && tradeDir === 'SHORT') {
-    const idcStatus = engine.idcStatus ?? 'NEUTRAL';
-    const idcOk = idcStatus === 'SHORT_CONFIRMED' || idcStatus === 'NEUTRAL';
-    const cvdBias = liveCvdBias || engine.cvdBias || 'NEUTRAL';
-    const cvdOk = cvdBias === 'BEAR';
-    const mfi = engine.mfi ?? 50;
-    const cmf = engine.cmf ?? 0;
-    const momOk = (mfi < 50) || (cmf < 0);
-    if (!idcOk || !cvdOk || !momOk) {
-      downgradeReasons.push(`R5_SQUEEZE_GATE: SQUEEZED+BEARISH SHORT missing confirmations (IDC=${idcStatus}, CVD=${cvdBias}, MFI=${mfi.toFixed(1)}, CMF=${cmf.toFixed(3)}) — needs confirmation (PTSwizard rule)`);
-    }
-  }
-
-  // R5B — PTSwizard Squeeze Gate (LONG mirror): SQUEEZED+BULLISH LONG downgrade when missing confirmations
-  //   IF squeeze=SQUEEZED+BULLISH AND direction=LONG:
-  //     REQUIRE (IDC=LONG_CONFIRMED OR NEUTRAL) AND (CVD=BULL) AND (MFI>50 OR CMF>0)
-  //   ELSE: downgrade to PENDING with [NEEDS_CONFIRMATION]. Prevents false LONGs but keeps setup visible.
-  if (sq.state === 'SQUEEZED' && sq.direction === 'BULLISH' && tradeDir === 'LONG') {
-    const idcStatus = engine.idcStatus ?? 'NEUTRAL';
-    const idcOk = idcStatus === 'LONG_CONFIRMED' || idcStatus === 'NEUTRAL';
-    const cvdBias = liveCvdBias || engine.cvdBias || 'NEUTRAL';
-    const cvdOk = cvdBias === 'BULL';
-    const mfi = engine.mfi ?? 50;
-    const cmf = engine.cmf ?? 0;
-    const momOk = (mfi > 50) || (cmf > 0);
-    if (!idcOk || !cvdOk || !momOk) {
-      downgradeReasons.push(`R5B_SQUEEZE_GATE: SQUEEZED+BULLISH LONG missing confirmations (IDC=${idcStatus}, CVD=${cvdBias}, MFI=${mfi.toFixed(1)}, CMF=${cmf.toFixed(3)}) — needs confirmation (PTSwizard rule)`);
-    }
-  }
-
-  // R6 — Correlation Guard: if an opposite-direction setup on a highly correlated
-  // asset (ρ≥0.75) is already ACTIVE, downgrade this one to PENDING to avoid doubling the same bet.
-  const CORR = {
-    'SOLUSDT': ['ETHUSDT','BTCUSDT'],
-    'ETHUSDT': ['SOLUSDT','BTCUSDT'],
-    'BTCUSDT': ['ETHUSDT','SOLUSDT'],
-    'GOLD':   ['PAXG','SILVER'],
-    'PAXG':   ['GOLD','SILVER'],
-  };
-  const corrGroup = CORR[symbol];
-  if (corrGroup) {
-    const opposite = tradeDir === 'LONG' ? 'SHORT' : 'LONG';
-    const conflict = corrGroup.find(s => {
-      const existing = db.getSignalByInstrument(s, opposite);
-      return existing && existing.status === 'ACTIVE';
-    });
-    if (conflict) {
-      downgradeReasons.push(`R6_CORR: Opposite ${opposite} setup active on correlated asset ${conflict} (ρ≥0.75) — downgraded to avoid doubling the same bet`);
-    }
-  }
-
-  // R7 — Confidence Score with historical n: compute hit-rate-adjusted confidence.
-  // Base = AI pct. Bonus from confluence count (CVD + IDC + squeeze + regime alignment).
-  const confPct = aiResult.confidencePct ?? engine.confidencePct ?? 50;
-  const sqOk = (sq.state === 'RELEASED' && sq.direction !== 'NEUTRAL');
-  const idcOk = (engine.idcStatus?.includes('CONFIRMED') || engine.idcStatus === 'NEUTRAL');
-  const cvdOk = (liveCvdBias || engine.cvdBias) === (tradeDir === 'LONG' ? 'BULL' : 'BEAR');
-  const regimeOk = engine.regime === 'TREND';
-  const confBonus = (sqOk ? 5 : 0) + (idcOk ? 5 : 0) + (cvdOk ? 5 : 0) + (regimeOk ? 5 : 0);
-  const adjustedConf = Math.min(100, Math.max(0, confPct + confBonus));
-  const confLabel = adjustedConf >= 80 ? 'ELITE' : adjustedConf >= 65 ? 'STRONG' : adjustedConf >= 50 ? 'VALID' : 'WEAK';
-
-  // R8 — Macro Blackout: downgrade setups during high-impact event windows (±15 min).
-  const macro = engine.macro || {};
-  const hasBlackout = macro.blackoutUntil && new Date(macro.blackoutUntil) > new Date();
-  if (hasBlackout) {
-    downgradeReasons.push(`R8_BLACKOUT: Macro blackout until ${macro.blackoutUntil} — high-impact event window (±15 min), downgraded to PENDING`);
-  }
-
   // R3 — Live order-book flow opposes direction
   if (liveCvdBias) {
     const bookOpposes = (tradeDir === 'LONG' && liveCvdBias === 'BEAR') ||
@@ -218,21 +145,19 @@ async function applyLessonVeto({ engine, tradeDir, liveCvdBias }) {
     }
   }
 
-  if (violated.length === 0 && downgradeReasons.length === 0) return { veto: false, reason: null, violatedRules: [], downgradeReasons: [] };
+  if (violated.length === 0 && downgradeReasons.length === 0) return { veto: false, reason: null, violatedRules: [], };
   if (violated.length > 0) {
     return {
       veto: true,
       reason: `LESSON VETO [${violated.join(',')}]: ${reasons.join('; ')}`,
       violatedRules: violated,
-      downgradeReasons: []
-    };
+      };
   }
   return {
     veto: false,
     reason: null,
     violatedRules: [],
-    downgradeReasons: downgradeReasons
-  };
+    };
 }
 import { calcPositionSize, getCircuitBreakerState } from './riskManager.js';
 import {
@@ -700,7 +625,7 @@ Return ONLY valid JSON (no markdown, no extra text):
     // 5. Accept grades ≥ C and statuses ACTIVE/PENDING.
     // WAIT is treated as PENDING (kept in DB for re-scan) — the engine isn't
     // ready yet but the setup is real, so we don't delete it.
-    const effectiveStatus = (veto.veto || atrFloorDowngrade || macroDowngrade || flowDowngrade || downgradeReasonsArr.length > 0)
+    const effectiveStatus = (veto.veto || atrFloorDowngrade || macroDowngrade || flowDowngrade || false)
       ? 'PENDING'
       : (aiResult.setupStatus === 'WAIT' ? 'PENDING'
         : (aiResult.setupStatus === 'ACTIVE' ? 'ACTIVE' : 'PENDING'));
@@ -731,7 +656,7 @@ Return ONLY valid JSON (no markdown, no extra text):
         grade:        finalGrade,
         pct:          finalPct,
         confidenceLabel: confLabel,
-        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (downgradeReasonsArr.length > 0 ? `[PENDING] ${downgradeReasonsArr.join('; ')} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (flowReason ? `[FLOW] ${flowReason} ` : '') + (obNote ? `${obNote} ` : '') + ((aiResult.setupStatus === 'WAIT') || veto.veto || flowDowngrade || atrFloorDowngrade || macroDowngrade || downgradeReasonsArr.length > 0 ? '[NEEDS_CONFIRMATION] ' : '') + (aiResult.reasoning || ''),
+        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (false ? `[PENDING] ${downgradeReasonsArr.join('; ')} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (flowReason ? `[FLOW] ${flowReason} ` : '') + (obNote ? `${obNote} ` : '') + ((aiResult.setupStatus === 'WAIT') || veto.veto || flowDowngrade || atrFloorDowngrade || macroDowngrade || false ? '[NEEDS_CONFIRMATION] ' : '') + (aiResult.reasoning || ''),
         timestamp:    new Date().toISOString(),
         // ── Macro overlay (F&G + DXY) — PTS-style sentiment/headwind filter ──
         fgValue:      macro?.fgValue ?? null,
