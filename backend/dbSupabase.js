@@ -156,7 +156,7 @@ export async function registerTrade(setup) {
 export async function upsertSignal(signal) {
   const { data: existing } = await (await client()).from('trades')
     .select('*').eq('instrument', signal.symbol).eq('direction', signal.direction)
-    .in('status', ['PENDING', 'ACTIVE']).limit(1).maybeSingle();
+    .limit(1).maybeSingle();
   if (existing) {
     // Existing signal being re-emitted by a new scan → NOT new (clear is_new).
     // Only a brand-new symbol+direction gets is_new=1 (see else branch).
