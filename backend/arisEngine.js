@@ -514,13 +514,27 @@ function detectSwings(highs, lows, lookback = 10) {
   let swingLowIndex = null;
   const n = highs.length;
 
+  // ATR-based swing filter: a valid swing must be at least 1×ATR away from the
+  // SMA of the lookback period. This filters out noise pivots in RANGE/CHOPPY
+  // markets where micro-wicks create false fractals.
+  const atr = computeATR(highs, lows, highs.map((_, i) => (highs[i] + lows[i]) / 2), 14);
+  const atrThreshold = (atr != null && isFinite(atr) && atr > 0) ? atr : 0;
+
   // Find most recent Swing High: a bar higher than all its surrounding bars within lookback
+  // AND at least 1×ATR above the SMA of the lookback (institutional-grade swing)
   for (let i = n - lookback - 1; i >= lookback; i--) {
     let isHigh = true;
     for (let j = i - lookback; j <= i + lookback; j++) {
       if (j !== i && highs[j] > highs[i]) { isHigh = false; break; }
     }
     if (isHigh) {
+      // ATR filter: require swing to be meaningfully above the lookback SMA
+      if (atrThreshold > 0) {
+        let sumH = 0;
+        for (let k = i - lookback; k <= i + lookback; k++) sumH += highs[k];
+        const smaH = sumH / (lookback * 2 + 1);
+        if (highs[i] - smaH < atrThreshold) continue; // noise pivot, skip
+      }
       swingHigh = highs[i];
       swingHighIndex = i;
       break;
@@ -528,12 +542,20 @@ function detectSwings(highs, lows, lookback = 10) {
   }
 
   // Find most recent Swing Low: a bar lower than all its surrounding bars within lookback
+  // AND at least 1×ATR below the SMA of the lookback
   for (let i = n - lookback - 1; i >= lookback; i--) {
     let isLow = true;
     for (let j = i - lookback; j <= i + lookback; j++) {
       if (j !== i && lows[j] < lows[i]) { isLow = false; break; }
     }
     if (isLow) {
+      // ATR filter: require swing to be meaningfully below the lookback SMA
+      if (atrThreshold > 0) {
+        let sumL = 0;
+        for (let k = i - lookback; k <= i + lookback; k++) sumL += lows[k];
+        const smaL = sumL / (lookback * 2 + 1);
+        if (smaL - lows[i] < atrThreshold) continue; // noise pivot, skip
+      }
       swingLow = lows[i];
       swingLowIndex = i;
       break;
