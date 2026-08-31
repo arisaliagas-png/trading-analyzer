@@ -384,19 +384,27 @@ Return ONLY valid JSON (no markdown, no extra text):
     }
 
     // 2d. Weak-regime / conflicting-signal guard
+    // Fires when EITHER the regime is weak (CHOPPY/RANGE) OR the AI's own
+    // reasoning flags uncertainty/conflict ("wait for", "caution", etc.) —
+    // regardless of what setupStatus the AI returned. Previously this only ran
+    // when setupStatus==='ACTIVE', which let the AI emit ACTIVE while its own
+    // reasoning said "waiting for cleaner confirmation" and slip through.
     const regime = engine.regime || 'RANGE';
     const weakRegime = regime === 'CHOPPY' || regime === 'RANGE';
     const reasoningTxt = (aiResult.reasoning || '').toLowerCase();
     const conflictWords = ['conflicting', 'caution', 'wait for', 'uncertainty', 'oversold',
-      'mean reversion', 'mean-reversion', 'cleaner momentum', 'clearer alignment', 'mixed'];
+      'mean reversion', 'mean-reversion', 'cleaner momentum', 'clearer alignment', 'mixed',
+      'waiting for'];
     const hasConflict = conflictWords.some(w => reasoningTxt.includes(w));
 
-    if (aiResult.setupStatus === 'ACTIVE' && (weakRegime || hasConflict)) {
+    if (weakRegime || hasConflict) {
       const why = weakRegime ? 'weak regime (' + regime + ')' : 'AI flagged conflicting/uncertain signals';
-      scannerLog.info({ symbol, scanId, regime, hasConflict }, 'Weak setup — downgrading ACTIVE -> WAIT (' + why + ')');
+      scannerLog.info({ symbol, scanId, regime, hasConflict, aiStatus: aiResult.setupStatus }, 'Weak setup — forcing WAIT (' + why + ')');
       aiResult.setupStatus = 'WAIT';
-      aiResult.reasoning = '[WEAK SETUP — ' + why.toUpperCase() + '] ' + (aiResult.reasoning || '') +
-        ' Setup held as WAIT; enter only on confirmed momentum/breakout with MTF alignment.';
+      if (!/^\[WEAK SETUP/.test(aiResult.reasoning || '')) {
+        aiResult.reasoning = '[WEAK SETUP — ' + why.toUpperCase() + '] ' + (aiResult.reasoning || '') +
+          ' Setup held as WAIT; enter only on confirmed momentum/breakout with MTF alignment.';
+      }
     }
 
     // 3. Geometry sanity check
@@ -606,7 +614,8 @@ Return ONLY valid JSON (no markdown, no extra text):
     // ready yet but the setup is real, so we don't delete it.
     const effectiveStatus = (veto.veto || atrFloorDowngrade || macroDowngrade || flowDowngrade)
       ? 'PENDING'
-      : (aiResult.setupStatus === 'WAIT' ? 'PENDING' : aiResult.setupStatus);
+      : (aiResult.setupStatus === 'WAIT' ? 'PENDING'
+        : (aiResult.setupStatus === 'ACTIVE' ? 'ACTIVE' : 'PENDING'));
     if (aiResult.confidenceGrade !== 'D') {
 
       // ── [4A] Deterministic position sizing (no AI involvement) ──
