@@ -100,6 +100,47 @@ async function applyLessonVeto({ engine, tradeDir, liveCvdBias }) {
     }
   }
 
+  // R6 — Correlation Guard: if an opposite-direction setup on a highly correlated
+  // asset (ρ≥0.75) is already ACTIVE, reject this one to avoid doubling the same bet.
+  const CORR = {
+    'SOLUSDT': ['ETHUSDT','BTCUSDT'],
+    'ETHUSDT': ['SOLUSDT','BTCUSDT'],
+    'BTCUSDT': ['ETHUSDT','SOLUSDT'],
+    'GOLD':   ['PAXG','SILVER'],
+    'PAXG':   ['GOLD','SILVER'],
+  };
+  const corrGroup = CORR[symbol];
+  if (corrGroup) {
+    const opposite = tradeDir === 'LONG' ? 'SHORT' : 'LONG';
+    const conflict = corrGroup.find(s => {
+      const existing = db.getSignalByInstrument(s, opposite);
+      return existing && existing.status === 'ACTIVE';
+    });
+    if (conflict) {
+      violated.push('R6_CORR');
+      reasons.push(`Opposite ${opposite} setup active on correlated asset ${conflict} (ρ≥0.75) — avoid doubling the same bet`);
+    }
+  }
+
+  // R7 — Confidence Score with historical n: compute hit-rate-adjusted confidence.
+  // Base = AI pct. Bonus from confluence count (CVD + IDC + squeeze + regime alignment).
+  const confPct = aiResult.confidencePct ?? engine.confidencePct ?? 50;
+  const sqOk = (sq.state === 'RELEASED' && sq.direction !== 'NEUTRAL');
+  const idcOk = (engine.idcStatus?.includes('CONFIRMED') || engine.idcStatus === 'NEUTRAL');
+  const cvdOk = (liveCvdBias || engine.cvdBias) === (tradeDir === 'LONG' ? 'BULL' : 'BEAR');
+  const regimeOk = engine.regime === 'TREND';
+  const confBonus = (sqOk ? 5 : 0) + (idcOk ? 5 : 0) + (cvdOk ? 5 : 0) + (regimeOk ? 5 : 0);
+  const adjustedConf = Math.min(100, Math.max(0, confPct + confBonus));
+  const confLabel = adjustedConf >= 80 ? 'ELITE' : adjustedConf >= 65 ? 'STRONG' : adjustedConf >= 50 ? 'VALID' : 'WEAK';
+
+  // R8 — Macro Blackout: skip high-impact event windows (±30 min) to avoid volatility traps.
+  const macro = engine.macro || {};
+  const hasBlackout = macro.blackoutUntil && new Date(macro.blackoutUntil) > new Date();
+  if (hasBlackout && engine.regime !== 'TREND') {
+    violated.push('R8_BLACKOUT');
+    reasons.push(`Macro blackout until ${macro.blackoutUntil} — high-impact event window, avoid entry`);
+  }
+
   // R3 — Live order-book flow opposes direction
   if (liveCvdBias) {
     const bookOpposes = (tradeDir === 'LONG' && liveCvdBias === 'BEAR') ||
@@ -395,9 +436,9 @@ Return ONLY valid JSON (no markdown, no extra text):
     // (e.g. schema mismatch swallowed upstream), fall back to the quant engine's
     // own computed grade so the UI never shows a blank "Grade %".
     const finalGrade = aiResult.confidenceGrade ?? engine.confidenceGrade ?? 'C';
-    const finalPct   = Math.min(100, (aiResult.confidencePct ?? engine.confidencePct ?? 50) + obConfluence * 5);
+    const finalPct   = adjustedConf; // hit-rate-adjusted confidence with confluence bonus
 
-    scannerLog.info({ symbol, scanId, status: aiResult.setupStatus, grade: finalGrade, pct: finalPct }, 'AI verification result');
+    scannerLog.info({ symbol, scanId, status: aiResult.setupStatus, grade: finalGrade, pct: finalPct, label: confLabel }, 'AI verification result');
 
     // 2c. Price-in-zone gate: if current price is NOT inside the OTE entry zone,
     // the setup is not yet triggerable — force PENDING (never ACTIVE). This prevents
@@ -678,6 +719,7 @@ Return ONLY valid JSON (no markdown, no extra text):
         status:       effectiveStatus,
         grade:        finalGrade,
         pct:          finalPct,
+        confidenceLabel: confLabel,
         reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (flowReason ? `[FLOW] ${flowReason} ` : '') + (obNote ? `${obNote} ` : '') + ((aiResult.setupStatus === 'WAIT') || veto.veto || flowDowngrade || atrFloorDowngrade || macroDowngrade ? '[NEEDS_CONFIRMATION] ' : '') + (aiResult.reasoning || ''),
         timestamp:    new Date().toISOString(),
         // ── Macro overlay (F&G + DXY) — PTS-style sentiment/headwind filter ──
