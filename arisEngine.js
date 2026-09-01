@@ -43,37 +43,17 @@ function ema(arr, period) {
 }
 
 function highest(arr, period) {
-  const res = [];
-  for (let i = 0; i < arr.length; i++) {
-    if (i < period - 1) { res.push(null); continue; }
-    let max = -Infinity;
-    let valid = false;
-    for (let j = i - period + 1; j <= i; j++) {
-      if (arr[j] != null) {
-        if (arr[j] > max) max = arr[j];
-        valid = true;
-      }
-    }
-    res.push(valid ? max : null);
-  }
-  return res;
+  return arr.map((_, i) => {
+    if (i < period - 1) return null;
+    return Math.max(...arr.slice(i - period + 1, i + 1).filter(v => v != null));
+  });
 }
 
 function lowest(arr, period) {
-  const res = [];
-  for (let i = 0; i < arr.length; i++) {
-    if (i < period - 1) { res.push(null); continue; }
-    let min = Infinity;
-    let valid = false;
-    for (let j = i - period + 1; j <= i; j++) {
-      if (arr[j] != null) {
-        if (arr[j] < min) min = arr[j];
-        valid = true;
-      }
-    }
-    res.push(valid ? min : null);
-  }
-  return res;
+  return arr.map((_, i) => {
+    if (i < period - 1) return null;
+    return Math.min(...arr.slice(i - period + 1, i + 1).filter(v => v != null));
+  });
 }
 
 function rma(arr, period) {
@@ -99,20 +79,12 @@ function rma(arr, period) {
 
 function stdDev(arr, period) {
   const means = sma(arr, period);
-  const res = [];
-  for (let i = 0; i < arr.length; i++) {
-    if (i < period - 1 || means[i] == null) { res.push(null); continue; }
+  return arr.map((_, i) => {
+    if (i < period - 1 || means[i] == null) return null;
     let sumSq = 0;
-    let validCount = 0;
-    for (let j = i - period + 1; j <= i; j++) {
-      if (arr[j] != null) {
-        sumSq += Math.pow(arr[j] - means[i], 2);
-        validCount++;
-      }
-    }
-    res.push(validCount > 0 ? Math.sqrt(sumSq / validCount) : null);
-  }
-  return res;
+    for (let j = i - period + 1; j <= i; j++) sumSq += Math.pow(arr[j] - means[i], 2);
+    return Math.sqrt(sumSq / period);
+  });
 }
 
 function atr(highs, lows, closes, period) {

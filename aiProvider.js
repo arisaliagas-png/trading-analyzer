@@ -63,42 +63,10 @@ function pickSchema(hints) {
 
 // ─── Validate parsed JSON against the appropriate schema ───
 function validateAIResponse(parsed, hints) {
-  if (!parsed || typeof parsed !== 'object') {
-    throw new Error(`AI response is not an object [${hints || 'ANALYSIS'}]`);
-  }
-  // Coerce string numbers to numbers if present (e.g. "confidencePct": "85")
-  if (typeof parsed.confidencePct === 'string') {
-    const num = parseFloat(parsed.confidencePct);
-    if (!isNaN(num)) parsed.confidencePct = num;
-  }
-  if (typeof parsed.confidence === 'string') {
-    const num = parseFloat(parsed.confidence);
-    if (!isNaN(num)) parsed.confidence = num;
-  }
-  // Normalize string enums if lowercase/uppercase mismatch
-  if (typeof parsed.setupStatus === 'string') {
-    parsed.setupStatus = parsed.setupStatus.toUpperCase();
-  }
-  if (typeof parsed.confidenceGrade === 'string') {
-    parsed.confidenceGrade = parsed.confidenceGrade.toUpperCase();
-  }
-
   const schema = pickSchema(hints);
   const result = schema.safeParse(parsed);
   if (!result.success) {
     const issues = result.error.issues.map(i => `${i.path.join('.')}: ${i.message}`).join(', ');
-    console.warn(`⚠️ AI schema validation warning [${hints || 'ANALYSIS'}]: ${issues}`);
-    // If it's general analysis or scanner verify, fallback gracefully rather than failing hard if essential fields exist
-    if (parsed.bias && parsed.reasoning) {
-      return {
-        bias: parsed.bias || 'neutral',
-        setupStatus: parsed.setupStatus || 'WAIT',
-        confidenceGrade: parsed.confidenceGrade || 'C',
-        confidencePct: typeof parsed.confidencePct === 'number' ? parsed.confidencePct : 50,
-        reasoning: parsed.reasoning || 'AI analysis completed with partial schema alignment.',
-        ...parsed
-      };
-    }
     throw new Error(`AI response schema validation failed [${hints || 'ANALYSIS'}]: ${issues}`);
   }
   return result.data;

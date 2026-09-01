@@ -30,8 +30,9 @@ const REQUIRED_ENV = [
 ];
 const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missingEnv.length > 0) {
-  console.warn(`\n⚠️ Warning: Missing environment variables: ${missingEnv.join(', ')}`);
-  console.warn('   → AI analysis calls will fail until keys are set in environment.');
+  console.error(`\n❌ Server startup aborted. Missing required environment variables: ${missingEnv.join(', ')}`);
+  console.error('   → Add them to backend/.env and restart.');
+  process.exit(1);
 }
 
 const __filename = fileURLToPath(import.meta.url);
@@ -564,28 +565,19 @@ app.get('/api/candles', async (req, res) => {
         if (r.ok) {
           const j = await r.json();
           if (j.result && Array.isArray(j.result.list) && j.result.list.length) {
-            candles = j.result.list.map(k => ({
-              time: Math.floor(Number(k[0]) / 1000),
-              open: parseFloat(k[1]),
-              high: parseFloat(k[2]),
-              low: parseFloat(k[3]),
-              close: parseFloat(k[4]),
-              volume: parseFloat(k[5])
-            })).reverse(); // Bybit returns newest-first
+            raw = j.result.list.map(k => [
+              Number(k[0]), k[1], k[2], k[3], k[4], k[5]
+            ]).reverse(); // Bybit returns newest-first
             src = 'bybit';
           }
         }
-      } catch (e) {
-        console.warn('Bybit candles fallback failed:', e.message);
-      }
+      } catch {}
     }
-    if (!candles && !raw) return res.status(502).json({ error: 'All price sources unavailable (Binance rate-limited)' });
-    if (!candles && raw) {
-      candles = raw.map(k => ({
-        time: Math.floor(k[0] / 1000),
-        open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: parseFloat(k[4]), volume: parseFloat(k[5])
-      }));
-    }
+    if (!raw) return res.status(502).json({ error: 'All price sources unavailable (Binance rate-limited)' });
+    const candles = raw.map(k => ({
+      time: Math.floor(k[0] / 1000),
+      open: parseFloat(k[1]), high: parseFloat(k[2]), low: parseFloat(k[3]), close: parseFloat(k[4]), volume: parseFloat(k[5])
+    }));
     candleCache.set(cacheKey, { ts: Date.now(), candles });
     res.json({ symbol: binanceSymbol, interval, candles, source: src });
   } catch (e) {

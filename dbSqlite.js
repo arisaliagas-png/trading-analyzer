@@ -19,33 +19,20 @@ import { dbLog } from './logger.js';
 const __filename = fileURLToPath(import.meta.url);
 const __dirname  = path.dirname(__filename);
 
-let DB_PATH = path.join(__dirname, 'data', 'aris.db');
-const DATA_DIR = path.join(__dirname, 'data');
+const DB_PATH   = path.join(__dirname, 'data', 'aris.db');
+const DATA_DIR  = path.join(__dirname, 'data');
 
-try {
-  if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
-} catch (e) {
-  console.warn('⚠️ Could not create data directory, using memory database fallback:', e.message);
-  DB_PATH = ':memory:';
-}
+// Ensure data directory exists
+if (!fs.existsSync(DATA_DIR)) fs.mkdirSync(DATA_DIR, { recursive: true });
 
 // ─────────────────────────────────────────────
 // OPEN & INITIALISE
 // ─────────────────────────────────────────────
-let dbInstance;
-try {
-  dbInstance = new Database(DB_PATH);
-} catch (e) {
-  console.warn('⚠️ Could not open aris.db file, falling back to :memory: database:', e.message);
-  dbInstance = new Database(':memory:');
-}
-export const db = dbInstance;
+export const db = new Database(DB_PATH);
 
-try {
-  db.pragma('journal_mode = WAL');
-} catch (e) {
-  // WAL mode fails on :memory: or network drives — ignore
-}
+// WAL mode: dramatically reduces write latency and allows
+// concurrent readers while a write is in progress.
+db.pragma('journal_mode = WAL');
 db.pragma('foreign_keys = ON');
 
 // ─────────────────────────────────────────────

@@ -50,40 +50,10 @@ async function fetchQuote(symbol) {
 // spending any credits.
 export async function getCapitalFlow(force = false) {
   const KEY = process.env.TWELVE_DATA_API_KEY; // lazy read (dotenv loads after imports)
+  if (!KEY) return { available: false, reason: 'TWELVE_DATA_API_KEY not set' };
+
   const now = Date.now();
   if (!force && cache.data && now - cache.ts < CACHE_TTL) return cache.data;
-
-  // Fallback if no Twelve Data API key is set
-  if (!KEY) {
-    const fg = await getFearGreed();
-    // Fetch BTC 24h ticker from Binance for Crypto rotation
-    let btcChange = 0;
-    let btcPrice = 0;
-    try {
-      const bRes = await fetch('https://api.binance.com/api/v3/ticker/24hr?symbol=BTCUSDT');
-      if (bRes.ok) {
-        const bData = await bRes.json();
-        btcChange = parseFloat(bData.priceChangePercent || 0);
-        btcPrice = parseFloat(bData.lastPrice || 0);
-      }
-    } catch {}
-
-    const fallbackResult = {
-      available: true,
-      generatedAt: new Date().toISOString(),
-      classes: [
-        { key: 'crypto', label: 'Crypto', symbol: 'BTCUSDT', price: btcPrice, change1d: +btcChange.toFixed(2), change7d: 0, flow: classifyFlow(btcChange).direction, score: classifyFlow(btcChange).score, available: true },
-        { key: 'metals', label: 'Metals (XAU)', symbol: 'XAU/USD', price: null, change1d: 0, change7d: 0, flow: 'NEUTRAL', score: 0, available: false },
-        { key: 'forex', label: 'Forex (EUR)', symbol: 'EUR/USD', price: null, change1d: 0, change7d: 0, flow: 'NEUTRAL', score: 0, available: false },
-        { key: 'commodities', label: 'Commodities', symbol: 'COPX', price: null, change1d: 0, change7d: 0, flow: 'NEUTRAL', score: 0, available: false },
-        { key: 'usd', label: 'USD Index', symbol: 'UUP', price: null, change1d: 0, change7d: 0, flow: 'NEUTRAL', score: 0, available: false }
-      ],
-      btcUsd: btcPrice,
-      fearGreed: fg
-    };
-    cache = { ts: now, data: fallbackResult };
-    return fallbackResult;
-  }
 
   const result = { available: true, generatedAt: new Date().toISOString(), classes: [] };
   let firstPrice = null;
