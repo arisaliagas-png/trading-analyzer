@@ -30,9 +30,8 @@ const REQUIRED_ENV = [
 ];
 const missingEnv = REQUIRED_ENV.filter(k => !process.env[k]);
 if (missingEnv.length > 0) {
-  console.error(`\n❌ Server startup aborted. Missing required environment variables: ${missingEnv.join(', ')}`);
-  console.error('   → Add them to backend/.env and restart.');
-  process.exit(1);
+  console.warn(`\n⚠️ Warning: Missing environment variables: ${missingEnv.join(', ')}`);
+  console.warn('   → AI analysis calls will fail until keys are set in environment.');
 }
 
 const __filename = fileURLToPath(import.meta.url);
