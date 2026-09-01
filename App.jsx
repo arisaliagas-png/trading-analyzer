@@ -1,6 +1,5 @@
 import React, { useState, useEffect, useRef } from 'react';
 import ChartTab from './ChartTab.jsx';
-import PositionCalculator from './components/PositionCalculator.jsx';
 
 const ASSETS_LIST = [
   'BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT',
@@ -1105,25 +1104,7 @@ export default function App() {
                 <div className="result-header">
                   <div>
                     <span className="badge badge-smc">{g.methodology || 'ARIS SMC'}</span>
-                    <h2 style={{ fontSize: '1.8rem', marginTop: '0.4rem', display: 'flex', alignItems: 'center', gap: '10px' }}>
-                      {g.instrument}
-                      <button
-                        onClick={() => window.print()}
-                        style={{
-                          background: 'rgba(56, 189, 248, 0.15)',
-                          border: '1px solid rgba(56, 189, 248, 0.4)',
-                          color: '#38bdf8',
-                          borderRadius: '6px',
-                          padding: '4px 10px',
-                          fontSize: '0.75rem',
-                          fontWeight: '600',
-                          cursor: 'pointer',
-                          fontFamily: 'inherit'
-                        }}
-                      >
-                        📥 {y === 'el' ? 'Εξαγωγή / Εκτύπωση' : 'Export / Print'}
-                      </button>
-                    </h2>
+                    <h2 style={{ fontSize: '1.8rem', marginTop: '0.4rem' }}>{g.instrument}</h2>
                   </div>
                   <div style={{ textAlign: 'right' }}>
                     <div className={`bias-tag ${g.bias?.toLowerCase() === 'long' ? 'bullish' : g.bias?.toLowerCase() === 'short' ? 'bearish' : 'neutral'}`}>
@@ -1186,13 +1167,6 @@ export default function App() {
 
                 <label>{t.aiReasoning}</label>
                 <div className="reasoning-text">{g.reasoning}</div>
-
-                <PositionCalculator
-                  entryPrice={typeof g.entry === 'object' ? g.entry?.price : g.entry}
-                  slPrice={g.sl}
-                  direction={g.bias}
-                  isGreek={y === 'el'}
-                />
 
                 <div style={{ marginTop: '1.5rem' }}>
                   <button className="btn-second-opinion" onClick={runSecondOpinion} disabled={Rn}>
