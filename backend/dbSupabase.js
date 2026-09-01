@@ -124,11 +124,12 @@ export async function registerTrade(setup) {
   // GUARD: do not overwrite an in-flight trade (ACTIVE/PARTIAL/SUCCESS) with a
   // fresh scan result. A new scan re-emitting the same symbol+direction must not
   // clobber a trade that already entered its zone, banked TP1, or already closed.
-  // Only allow (re)registration if no live/closed row exists, OR existing is PENDING/ACTIVE.
+  // For closed/expired/failed trades: allow re-registration as a fresh PENDING
+  // setup because the old thesis is dead and a new one may be valid.
   const { data: existing } = await (await client()).from('trades')
     .select('status').eq('id', setup.id).maybeSingle();
-  if (existing && !['PENDING', 'ACTIVE'].includes(existing.status)) {
-    dbLog.info({ id: setup.id, existingStatus: existing.status }, 'registerTrade skipped — trade already closed/expired, not reopening');
+  if (existing && ['ACTIVE', 'PARTIAL', 'SUCCESS'].includes(existing.status)) {
+    dbLog.info({ id: setup.id, existingStatus: existing.status }, 'registerTrade skipped — trade already active/closed, not reopening');
     return;
   }
 
@@ -157,9 +158,8 @@ export async function upsertSignal(signal) {
   const { data: existing } = await (await client()).from('trades')
     .select('*').eq('instrument', signal.symbol).eq('direction', signal.direction)
     .limit(1).maybeSingle();
-  if (existing) {
-    // Existing signal being re-emitted by a new scan → NOT new (clear is_new).
-    // Only a brand-new symbol+direction gets is_new=1 (see else branch).
+  if (existing && ['ACTIVE', 'PARTIAL', 'PENDING'].includes(existing.status)) {
+    // Existing active/pending trade — update it with fresh data from new scan
     const { error } = await (await client()).from('trades').update({
       id:          signal.id,
       status:      signal.status, grade: signal.grade, confidence_pct: signal.pct,
@@ -169,12 +169,11 @@ export async function upsertSignal(signal) {
       indicator_snapshot: JSON.stringify(signal.indicators || [])
     }).eq('id', existing.id);
     if (error) dbLog.error({ err: error.message }, 'Supabase upsertSignal failed');
-  } else {
+  } else if (!existing || existing.status === 'FAILED' || existing.status === 'EXPIRED' || existing.status === 'SUCCESS') {
+    // Old trade is dead — insert a fresh one with is_new=1
     await registerTrade({
-      id: signal.id, instrument: signal.symbol, timeframe: signal.timeframe, direction: signal.direction,
-      entry: signal.entry, sl: signal.sl, targets: signal.targets, rr: signal.rr, status: signal.status,
-      grade: signal.grade, pct: signal.pct, reasoning: signal.reasoning, strategy: signal.strategy ?? null, is_new: 1,
-      indicators: signal.indicators || []
+      ...signal,
+      is_new: 1
     });
   }
 }
