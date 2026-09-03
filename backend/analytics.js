@@ -176,7 +176,7 @@ function gradeCalibration(trades) {
 // ─────────────────────────────────────────────
 // MAIN ANALYTICS FUNCTION
 // ─────────────────────────────────────────────
-export async function computeAnalytics() {
+export async function computeAnalytics(req) {
   const allTrades = await getAllTrades();
   const closed    = allTrades.filter(t => ['SUCCESS', 'FAILED', 'PARTIAL'].includes(t.status));
   const active    = allTrades.filter(t => t.status === 'ACTIVE');
@@ -208,7 +208,7 @@ export async function computeAnalytics() {
   const rrAnalysis = {
     avgTheoreticalRR:  avg(thRR),
     avgRealizedRR:     avg(realRR),
-    rrDelta:           (avg(thRR) && avg(realRR))
+    rrDelta:           (avg(realRR) && avg(thRR))
       ? parseFloat((avg(realRR) - avg(thRR)).toFixed(3))
       : null,
     note: avg(realRR) === null
@@ -217,12 +217,6 @@ export async function computeAnalytics() {
   };
 
   // ── 6. Expectancy (per trade average profit in R) ───────
-  // Expectancy = (Win% × avg_win_R) - (Loss% × avg_loss_R)
-  // Simplified: Win% × avg_theoretical_RR - Loss% × 1.0
-  // NOTE: winRate (overall) now counts PARTIAL as a win (TP1 banked = setup won).
-  // For expectancy R-math we use only fully-closed trades (SUCCESS/FAILED) since
-  // PARTIAL's trailing 30% hasn't resolved yet. Blend: win% from overall (incl.
-  // PARTIAL), R from closed pool.
   const closedWinPct = overall.total > 0 ? (overall.wins / overall.total) : 0;
   const closedLossPct = overall.total > 0 ? (overall.losses / overall.total) : 0;
   const expectancy = overall.total > 0
@@ -243,8 +237,8 @@ export async function computeAnalytics() {
     .slice(0, 20);
   const recentPerf = winRate(recent20);
 
-  // ── 8. Pagination helper (used by frontend if it requests page param) ───────
-  const page = parseInt(reqQuery.page || '1', 10) || 1;
+  // Pagination from query params
+  const page = parseInt((req && req.query && req.query.page) || '1', 10) || 1;
   const pageSize = 10;
   const totalRecent = recent20.length;
   const totalPages = Math.max(1, Math.ceil(totalRecent / pageSize));

@@ -247,7 +247,9 @@ export function registerTrade(setup) {
   // GUARD: do not overwrite an in-flight or closed trade with a fresh scan.
   // A new scan re-emitting the same symbol+direction must not clobber a trade
   // that already entered its zone, banked TP1, or already closed (SUCCESS/FAILED/EXPIRED).
-  const existing = db.prepare('SELECT status FROM trades WHERE id = ?').get(setup.id);
+  // Look up by instrument+direction (not id) because each scan now gets a
+  // unique id, so the id-based check would always miss existing setups.
+  const existing = db.prepare('SELECT status,is_new FROM trades WHERE instrument = ? AND direction = ? ORDER BY created_at DESC LIMIT 1').get(setup.instrument, direction);
   const preserveNew = existing && !['PENDING', 'ACTIVE'].includes(existing.status);
   if (existing && !['PENDING', 'ACTIVE'].includes(existing.status)) {
     dbLog.info({ id: setup.id, existingStatus: existing.status, preserveNew }, 'registerTrade skipped — trade already closed/expired, not reopening');
@@ -272,7 +274,7 @@ export function registerTrade(setup) {
     reasoning:         setup.reasoning ?? null,
     indicator_snapshot: JSON.stringify(setup.indicators || []),
     strategy:          setup.strategy ?? null,
-    is_new:            preserveNew ? 0 : 1,
+    is_new:            preserveNew ? (existing?.is_new ?? 0) : 1,
     created_at:        new Date().toISOString()
   });
   dbLog.info({ id: setup.id, instrument: setup.instrument, direction, preserveNew }, 'Trade registered');
