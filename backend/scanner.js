@@ -292,7 +292,6 @@ async function scanAsset(symbol, scanId, macro = null) {
     if (!hasSetup || !hasDecentScore || !isFresh) {
       // Only remove the SAME-direction PENDING signal. A new scan that finds no
       // setup for LONG must NOT wipe an existing SHORT setup (or vice-versa).
-      await removeSignalByInstrument(symbol, engine.direction);
       const reason = !isFresh ? `stale swing pivot (${pivotAge} candles old)` : 'no valid setup';
       scannerLog.info({ symbol, scanId, strategy: engine.executionStrategy, score: engine.megaScore, pivotAge }, `Skipped — ${reason}`);
       return null;
@@ -429,8 +428,7 @@ Return ONLY valid JSON (no markdown, no extra text):
 
     if (!longOk && !shortOk) {
       scannerLog.warn({ symbol, scanId, direction: tradeDir, entry: idealEntry, sl: slVal, tp1: tp1Val }, 'Rejected — geometry invalid');
-      await removeSignalByInstrument(symbol, tradeDir);
-      return null;
+      downgradeReasons.push(`GEOMETRY INVALID — entry/SL/TP1 misaligned for ${tradeDir} (entry=${idealEntry}, sl=${slVal}, tp1=${tp1Val})`);
     }
 
     // 4. Minimum 1.0:1 R:R check
@@ -440,8 +438,7 @@ Return ONLY valid JSON (no markdown, no extra text):
 
     if (rr < 1.0) {
       scannerLog.warn({ symbol, scanId, rr }, 'Rejected — R:R too low');
-      await removeSignalByInstrument(symbol, tradeDir);
-      return null;
+      downgradeReasons.push(`R:R TOO LOW — ${rr.toFixed(2)} < 1.0 minimum`);
     }
 
     scannerLog.info({ symbol, scanId, direction: tradeDir, rr }, 'Geometry OK');
