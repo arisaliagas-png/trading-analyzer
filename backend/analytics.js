@@ -232,11 +232,25 @@ export async function computeAnalytics() {
       ).toFixed(3))
     : null;
 
-  // ── 7. Recent performance (last 10 closed trades) ───────
-  const recent10 = closed
-    .sort((a, b) => new Date(b.closedAt || 0) - new Date(a.closedAt || 0))
-    .slice(0, 10);
-  const recentPerf = winRate(recent10);
+  // ── 7. Recent performance (last 20 closed/partial trades with pagination) ─
+  const recent20 = allTrades
+    .filter(t => ['SUCCESS', 'FAILED', 'PARTIAL'].includes(t.status))
+    .sort((a, b) => {
+      const aTime = new Date(a.closedAt || a.createdAt || 0).getTime();
+      const bTime = new Date(b.closedAt || b.createdAt || 0).getTime();
+      return bTime - aTime;
+    })
+    .slice(0, 20);
+  const recentPerf = winRate(recent20);
+
+  // ── 8. Pagination helper (used by frontend if it requests page param) ───────
+  const page = parseInt(reqQuery.page || '1', 10) || 1;
+  const pageSize = 10;
+  const totalRecent = recent20.length;
+  const totalPages = Math.max(1, Math.ceil(totalRecent / pageSize));
+  const safePage = Math.min(page, totalPages);
+  const startIdx = (safePage - 1) * pageSize;
+  const paginatedRecent = recent20.slice(startIdx, startIdx + pageSize);
 
   // ── 8. Circuit breaker ──────────────────────────────────
   const circuitBreaker = checkCircuitBreaker(allTrades);
@@ -276,7 +290,10 @@ export async function computeAnalytics() {
 
     recentPerformance: {
       last10Trades: recentPerf,
-      trades: recent10.map(t => ({
+      total: totalRecent,
+      page: safePage,
+      totalPages,
+      trades: paginatedRecent.map(t => ({
         id:         t.id,
         instrument: t.instrument,
         direction:  t.direction,

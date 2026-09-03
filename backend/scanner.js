@@ -633,12 +633,14 @@ Return ONLY valid JSON (no markdown, no extra text):
         effectiveStatus
       );
 
-      // Deterministic id (symbol+direction) so repeated scans UPDATE the
-      // same row instead of inserting duplicates. The Supabase upsert uses
-      // onConflict:'id', and the SQLite upsert keys off instrument+direction,
-      // so a stable id guarantees both backends dedupe correctly.
+      // Unique id per scan run so repeated scans APPEND instead of overwriting.
+      // Old setups remain in history for backtest/analytics; frontend shows all
+      // active ones. Supabase upsert uses onConflict:'id', so a fresh id creates
+      // a new row every time. SQLite upsert keys off id as well.
+      const scanSeq = (globalThis.__scanSeq || 0) + 1;
+      globalThis.__scanSeq = scanSeq;
       const signal = {
-        id:           `${symbol}_${tradeDir}`,
+        id:           `${symbol}_${tradeDir}_${Date.now()}_${scanSeq}`,
         symbol,
         timeframe:    SCAN_TIMEFRAME,
         direction:    tradeDir,

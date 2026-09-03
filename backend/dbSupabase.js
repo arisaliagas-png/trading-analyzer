@@ -133,6 +133,11 @@ export async function registerTrade(setup) {
     return;
   }
 
+  // If the trade already exists but is PENDING/EXPIRED/FAILED, preserve its
+  // current is_new value instead of force-flashing it to NEW on every scan.
+  // upsertSignal already manages is_new for existing active/pending setups.
+  const preserveNew = existing && !['ACTIVE', 'PARTIAL', 'SUCCESS'].includes(existing.status);
+
   const { error } = await (await client()).from('trades').upsert({
     id: setup.id, instrument: setup.instrument, timeframe: setup.timeframe || null,
     direction, entry_low: setup.entry.low ?? null, entry_high: setup.entry.high ?? null,
@@ -140,17 +145,15 @@ export async function registerTrade(setup) {
     tp2: setup.targets?.[1] ?? null, rr: setup.rr ?? null, status: setup.status || 'PENDING',
     grade: setup.grade ?? null, confidence_pct: setup.pct ?? null, reasoning: setup.reasoning ?? null,
     indicator_snapshot: JSON.stringify(setup.indicators || []), strategy: setup.strategy ?? null,
-    is_new: 1, created_at: new Date().toISOString()
+    is_new: preserveNew ? undefined : 1, created_at: new Date().toISOString()
   }, { onConflict: 'id' });
   if (error) dbLog.error({ err: error.message }, 'Supabase registerTrade failed');
   else {
-    // Ensure grade/pct + is_new are persisted — upsert sometimes drops them on conflict,
-    // and we MUST re-flag is_new=1 on every (re)registration so the frontend shows NEW.
     const { error: gErr } = await (await client()).from('trades')
-      .update({ grade: setup.grade ?? null, confidence_pct: setup.pct ?? null, is_new: 1 })
+      .update({ grade: setup.grade ?? null, confidence_pct: setup.pct ?? null, is_new: preserveNew ? undefined : 1 })
       .eq('id', setup.id);
     if (gErr) dbLog.error({ err: gErr.message }, 'Supabase grade/is_new update failed');
-    dbLog.info({ id: setup.id, instrument: setup.instrument, direction }, 'Trade registered (Supabase)');
+    dbLog.info({ id: setup.id, instrument: setup.instrument, direction, preserveNew }, 'Trade registered (Supabase)');
   }
 }
 

@@ -248,8 +248,9 @@ export function registerTrade(setup) {
   // A new scan re-emitting the same symbol+direction must not clobber a trade
   // that already entered its zone, banked TP1, or already closed (SUCCESS/FAILED/EXPIRED).
   const existing = db.prepare('SELECT status FROM trades WHERE id = ?').get(setup.id);
+  const preserveNew = existing && !['PENDING', 'ACTIVE'].includes(existing.status);
   if (existing && !['PENDING', 'ACTIVE'].includes(existing.status)) {
-    dbLog.info({ id: setup.id, existingStatus: existing.status }, 'registerTrade skipped — trade already closed/expired, not reopening');
+    dbLog.info({ id: setup.id, existingStatus: existing.status, preserveNew }, 'registerTrade skipped — trade already closed/expired, not reopening');
     return;
   }
 
@@ -271,10 +272,10 @@ export function registerTrade(setup) {
     reasoning:         setup.reasoning ?? null,
     indicator_snapshot: JSON.stringify(setup.indicators || []),
     strategy:          setup.strategy ?? null,
-    is_new:            1,
+    is_new:            preserveNew ? 0 : 1,
     created_at:        new Date().toISOString()
   });
-  dbLog.info({ id: setup.id, instrument: setup.instrument, direction }, 'Trade registered');
+  dbLog.info({ id: setup.id, instrument: setup.instrument, direction, preserveNew }, 'Trade registered');
 }
 
 /**
