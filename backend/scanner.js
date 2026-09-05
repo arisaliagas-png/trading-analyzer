@@ -167,6 +167,7 @@ import {
   updateTradeStatus,
   updateTradeMeta,
   hasActiveTrade,
+  getAssetEdge,
   clearIsNew
 } from './db.js';
 
@@ -303,7 +304,14 @@ async function scanAsset(symbol, scanId, macro = null) {
     scannerLog.info({ symbol, scanId, strategy: engine.executionStrategy, score: engine.megaScore }, 'Candidate found — requesting AI verification');
 
     const ote = engine.ote;
+    const tradeDir = ote.direction;
     const f = v => v?.toFixed(4) ?? '?';
+
+    // Query asset-specific playbook track record
+    let assetEdge = { total: 0, isFavorable: false, isUnfavorable: false, bonus: 0 };
+    try {
+      assetEdge = await getAssetEdge(symbol, tradeDir);
+    } catch { /* non-fatal */ }
 
     const prompt = `
 [SCANNER AUTO VERIFICATION REQUEST]
@@ -326,6 +334,7 @@ ENGINE SNAPSHOT:
 |- Market Structure: ${engine.structure?.trend ?? 'N/A'} (BOS: ${engine.structure?.bos ?? false}, CHoCH: ${engine.structure?.choch ?? false})
 |- Live Order-Book CVD Bias: ${liveCvdBias ?? 'N/A (fallback to candle-derived)'}
 |- Real-News Sentiment: ${newsContext?.sentimentScore != null ? (newsContext.sentimentScore > 0.15 ? 'BULLISH' : newsContext.sentimentScore < -0.15 ? 'BEARISH' : 'NEUTRAL') : 'N/A'}
+|- Asset Historical Playbook: ${assetEdge.total >= 3 ? `${assetEdge.winRate}% WR over ${assetEdge.total} closed trades (Avg ${assetEdge.avgR > 0 ? '+' : ''}${assetEdge.avgR}R)` : 'New asset (insufficient trade sample)'}
 |- Indicator Data:
 ${ind.arisContext ?? ''}
 
@@ -369,7 +378,8 @@ Return ONLY valid JSON (no markdown, no extra text):
     // (e.g. schema mismatch swallowed upstream), fall back to the quant engine's
     // own computed grade so the UI never shows a blank "Grade %".
     const finalGrade = aiResult.confidenceGrade ?? engine.confidenceGrade ?? 'C';
-    const adjustedConf = Math.min(100, (aiResult.confidencePct ?? engine.confidencePct ?? 50) + (obConfluence * 5)); // fallback when R7 removed
+    const edgeBonus = assetEdge.total >= 3 ? assetEdge.bonus : 0;
+    const adjustedConf = Math.min(100, Math.max(0, (aiResult.confidencePct ?? engine.confidencePct ?? 50) + (obConfluence * 5) + edgeBonus));
     const confLabel = adjustedConf >= 80 ? 'ELITE' : adjustedConf >= 65 ? 'STRONG' : adjustedConf >= 50 ? 'VALID' : 'WEAK';
     const finalPct   = adjustedConf;
 
@@ -425,7 +435,6 @@ Return ONLY valid JSON (no markdown, no extra text):
     // computed an inverted target. Instead of rejecting the trade, recompute TP1/TP2
     // using the SL distance and a 2.05:1 R:R floor — preserving the valid entry/SL
     // while fixing the geometry in-place.
-    const tradeDir   = ote.direction;
     const idealEntry = ote.entry?.price;
     let tp1Val     = ote.tp1;
     const slVal      = ote.sl;
@@ -658,7 +667,8 @@ Return ONLY valid JSON (no markdown, no extra text):
       // a new row every time. SQLite upsert keys off id as well.
       const scanSeq = (globalThis.__scanSeq || 0) + 1;
       globalThis.__scanSeq = scanSeq;
-      const signal = {
+        const edgeTag = assetEdge.isFavorable ? `[PLAYBOOK EDGE: ${assetEdge.winRate}% WR (${assetEdge.wins}W/${assetEdge.losses}L)] ` : assetEdge.isUnfavorable ? `[PLAYBOOK CAUTION: ${assetEdge.winRate}% WR] ` : '';
+        const signal = {
         id:           `${symbol}_${tradeDir}_${Date.now()}_${scanSeq}`,
         symbol,
         timeframe:    SCAN_TIMEFRAME,
@@ -671,7 +681,7 @@ Return ONLY valid JSON (no markdown, no extra text):
         grade:        finalGrade,
         pct:          finalPct,
         confidenceLabel: confLabel,
-        reasoning:    (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (downgradeReasons.length > 0 ? `[PENDING] ${downgradeReasons.join('; ')} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (flowReason ? `[FLOW] ${flowReason} ` : '') + (obNote ? `${obNote} ` : '') + ((aiResult.setupStatus === 'WAIT') || veto.veto || flowDowngrade || atrFloorDowngrade || macroDowngrade || downgradeReasons.length > 0 ? '[NEEDS_CONFIRMATION] ' : '') + (aiResult.reasoning || ''),
+        reasoning:    edgeTag + (lessonVetoReason ? `[LESSON VETO] ${lessonVetoReason} ` : '') + (downgradeReasons.length > 0 ? `[PENDING] ${downgradeReasons.join('; ')} ` : '') + (atrFloorReason ? `[ATR-FLOOR] ${atrFloorReason} ` : '') + (macroReason ? `[MACRO] ${macroReason} ` : '') + (flowReason ? `[FLOW] ${flowReason} ` : '') + (obNote ? `${obNote} ` : '') + ((aiResult.setupStatus === 'WAIT') || veto.veto || flowDowngrade || atrFloorDowngrade || macroDowngrade || downgradeReasons.length > 0 ? '[NEEDS_CONFIRMATION] ' : '') + (aiResult.reasoning || ''),
         timestamp:    new Date().toISOString(),
         // ── Macro overlay (F&G + DXY) — PTS-style sentiment/headwind filter ──
         fgValue:      macro?.fgValue ?? null,
@@ -691,6 +701,10 @@ Return ONLY valid JSON (no markdown, no extra text):
           ? (ote.entry?.high ?? ote.entry?.price)
           : (ote.entry?.low ?? ote.entry?.price),
         atr14:        atr14 ?? null,
+        // ── Asset Playbook edge metrics ──
+        assetWinRate: assetEdge.winRate ?? null,
+        assetAvgR:    assetEdge.avgR ?? null,
+        assetTotal:   assetEdge.total ?? 0,
         // needsConfirmation: TRUE when the scanner emitted this as WAIT/PENDING due
         // to weak/conflicting signals (regime, CVD opposition, lesson veto, flow).
         // Such setups must NOT be auto-activated by the trade tracker when price
@@ -708,7 +722,8 @@ Return ONLY valid JSON (no markdown, no extra text):
           { __macro: true, fgValue: macro?.fgValue ?? null, fgSignal: macro?.fgSignal ?? 0,
             dxyDirection: macro?.dxyDirection ?? null, dxyChange: macro?.dxyChange ?? null },
           { __flow: true, doi1h: doi1h ?? null, flowQuality: flowQuality ?? 'N/A',
-            cvdBias: liveCvdBias || engine.cvdBias || null }
+            cvdBias: liveCvdBias || engine.cvdBias || null },
+          { __playbook: true, winRate: assetEdge.winRate, avgR: assetEdge.avgR, total: assetEdge.total, isFavorable: assetEdge.isFavorable }
         ]
       };
 
@@ -927,6 +942,7 @@ export async function getActiveSignals() {
     const macro = snap.find(s => s && s.__macro) || {};
     const flow = snap.find(s => s && s.__flow) || {};
     const board = snap.find(s => s && s.__board) || {};
+    const playbook = snap.find(s => s && s.__playbook) || {};
     return {
       ...t,
       // flat meta for the UI
@@ -944,6 +960,10 @@ export async function getActiveSignals() {
       boardClusterPct:    board.clusterPct ?? null,
       boardCorrelationRisk: board.correlationRisk ?? false,
       boardNote:      board.note ?? null,
+      assetWinRate:   (t.assetWinRate ?? playbook.winRate) ?? null,
+      assetAvgR:      (t.assetAvgR ?? playbook.avgR) ?? null,
+      assetTotal:     (t.assetTotal ?? playbook.total) ?? 0,
+      isFavorableAsset: playbook.isFavorable ?? false,
       is_new:         t.is_new ?? (t.isNew ? 1 : 0)
     };
   });

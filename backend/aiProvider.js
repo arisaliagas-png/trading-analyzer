@@ -681,10 +681,10 @@ export async function analyzeChart(imageBuffer, mimeType, pair = '', timeframe =
     console.error('[aiProvider] capital flow fetch failed:', e.message);
   }
 
-  // ── Lessons Learned Feedback Loop & Directional Edge ──
+  // ── Lessons Learned Feedback Loop, Directional Edge & Asset Playbook ──
   let lessonsSection = '';
   try {
-    const { getLessonsFor, getAllLessons, getDirectionalEdge } = await import('./db.js');
+    const { getLessonsFor, getAllLessons, getDirectionalEdge, getAssetEdge } = await import('./db.js');
 
     let edgeSection = '';
     try {
@@ -712,6 +712,30 @@ export async function analyzeChart(imageBuffer, mimeType, pair = '', timeframe =
       console.warn('[Learning Loop] Failed to load directional edge:', e.message);
     }
 
+    let assetPlaybookSection = '';
+    try {
+      if (pair) {
+        const assetEdge = await getAssetEdge(pair);
+        if (assetEdge && assetEdge.total >= 3) {
+          const longEdge = await getAssetEdge(pair, 'LONG');
+          const shortEdge = await getAssetEdge(pair, 'SHORT');
+          const lines = [];
+          if (longEdge.total > 0) lines.push(`  • LONG on ${pair.toUpperCase()}: ${longEdge.winRate}% WR (${longEdge.wins}W/${longEdge.losses}L, Avg ${longEdge.avgR > 0 ? '+' : ''}${longEdge.avgR}R)`);
+          if (shortEdge.total > 0) lines.push(`  • SHORT on ${pair.toUpperCase()}: ${shortEdge.winRate}% WR (${shortEdge.wins}W/${shortEdge.losses}L, Avg ${shortEdge.avgR > 0 ? '+' : ''}${shortEdge.avgR}R)`);
+          
+          let playNote = '';
+          if (assetEdge.isFavorable) {
+            playNote = `\n  ★ PROVEN HIGH-EDGE ASSET: Historical performance on ${pair.toUpperCase()} is strong (${assetEdge.winRate}% WR). Favorable for high-conviction execution.`;
+          } else if (assetEdge.isUnfavorable) {
+            playNote = `\n  ⚠ LOW HISTORICAL EDGE ASSET: Win rate is below 40%. Strictly enforce Grade A+ confluence and require confirmed Orderbook wall support.`;
+          }
+          assetPlaybookSection = `\n\n[ASSET PLAYBOOK & HISTORICAL EDGE — ${pair.toUpperCase()}]\n` + lines.join('\n') + playNote;
+        }
+      }
+    } catch (e) {
+      console.warn('[Learning Loop] Failed to load asset edge:', e.message);
+    }
+
     const localLessons = (await getLessonsFor(pair, 'LONG')).concat(await getLessonsFor(pair, 'SHORT')).slice(0, 5);
     const globalLessons = (await getAllLessons()).filter(l => l.instrument.toUpperCase() !== pair.toUpperCase()).slice(0, 3);
 
@@ -735,6 +759,9 @@ export async function analyzeChart(imageBuffer, mimeType, pair = '', timeframe =
     }
     if (edgeSection) {
       lessonsSection = (lessonsSection ? lessonsSection + '\n' : '') + edgeSection;
+    }
+    if (assetPlaybookSection) {
+      lessonsSection = (lessonsSection ? lessonsSection + '\n' : '') + assetPlaybookSection;
     }
   } catch (err) {
     console.warn('[Learning Loop] Failed to load lessons from DB:', err.message);

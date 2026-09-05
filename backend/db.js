@@ -42,6 +42,7 @@ export const getTradeById         = backend.getTradeById;
 export const getAllTrades         = backend.getAllTrades;
 export const getByInstrument      = backend.getByInstrument;
 export const getDirectionalEdge   = backend.getDirectionalEdge;
+export const getAssetEdge         = backend.getAssetEdge;
 export const getPriceHistory      = backend.getPriceHistory;
 export const getLessonsFor        = backend.getLessonsFor;
 export const hasRecentLesson      = backend.hasRecentLesson;

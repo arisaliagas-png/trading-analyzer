@@ -498,6 +498,60 @@ export function getDirectionalEdge() {
   return edge;
 }
 
+/**
+ * ASSET EDGE & PLAYBOOK
+ * Calculates historical performance metrics for a specific asset and direction.
+ * Returns: { wins, losses, total, winRate, avgR, isFavorable, isUnfavorable, bonus }
+ */
+export function getAssetEdge(instrument, direction = null) {
+  const sym = (instrument || '').toUpperCase().trim();
+  let query = `
+    SELECT direction, status, close_price, entry_price, sl
+    FROM trades
+    WHERE UPPER(instrument) = ? AND status IN ('SUCCESS', 'FAILED')
+  `;
+  const params = [sym];
+  if (direction) {
+    query += ` AND direction = ?`;
+    params.push(direction.toUpperCase());
+  }
+
+  const rows = db.prepare(query).all(...params);
+  let wins = 0;
+  let losses = 0;
+  let totalR = 0;
+
+  for (const r of rows) {
+    if (r.status === 'SUCCESS') wins++;
+    else losses++;
+
+    if (r.entry_price && r.sl) {
+      const risk = Math.abs(r.entry_price - r.sl);
+      if (risk > 0 && r.close_price) {
+        const pnl = r.direction === 'LONG' ? (r.close_price - r.entry_price) : (r.entry_price - r.close_price);
+        totalR += (pnl / risk);
+      }
+    }
+  }
+
+  const total = wins + losses;
+  const winRate = total > 0 ? parseFloat(((wins / total) * 100).toFixed(1)) : null;
+  const avgR = total > 0 ? parseFloat((totalR / total).toFixed(2)) : 0;
+
+  return {
+    instrument: sym,
+    direction: direction ? direction.toUpperCase() : 'ALL',
+    wins,
+    losses,
+    total,
+    winRate,
+    avgR,
+    isFavorable: total >= 3 && winRate >= 65,
+    isUnfavorable: total >= 3 && winRate < 40,
+    bonus: (total >= 3 && winRate >= 70) ? 8 : (total >= 3 && winRate >= 60) ? 4 : (total >= 3 && winRate < 40) ? -10 : 0
+  };
+}
+
 /** Returns price history array for a given trade. */
 export function getPriceHistory(tradeId) {
   return stmts.getPriceHistory.all(tradeId);

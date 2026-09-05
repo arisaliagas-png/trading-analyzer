@@ -13,6 +13,7 @@ import fetch from 'node-fetch';
 import {
   getActiveTrades,
   updateTradeStatus,
+  updateTradeLevels,
   recordPrice,
   saveLesson,
   hasRecentLesson,
@@ -287,73 +288,119 @@ export async function monitorTrades() {
         }
       }
 
-    } else if (trade.status === 'ACTIVE') {
+    } else if (trade.status === 'ACTIVE' || trade.status === 'PARTIAL') {
+      const entryPrice = trade.entry_price ?? trade.entryPrice ?? trade.entry?.price;
+
+      // ── Live Progress % Towards Targets ──
+      let progressPct = 0;
+      if (entryPrice && currentPrice && trade.tp1) {
+        if (isLong) {
+          const targetDist = trade.tp1 - entryPrice;
+          if (targetDist > 0) {
+            progressPct = Math.min(100, Math.max(0, ((currentPrice - entryPrice) / targetDist) * 100));
+          }
+        } else {
+          const targetDist = entryPrice - trade.tp1;
+          if (targetDist > 0) {
+            progressPct = Math.min(100, Math.max(0, ((entryPrice - currentPrice) / targetDist) * 100));
+          }
+        }
+      }
+
       // Wick-aware hit detection: a candle wick can touch the level without the
       // close reaching it. We approximate by allowing a small tolerance band
       // around TP1/SL — if price came within WICK_TOLERANCE% of the level, treat
       // as a touch (prevents missed SL/TP on wicked candles).
-      // Fallback to recent historyPrices if currentPrice snapshot missed the hit
-      // (e.g. price wick-touched TP1/SL between polls and fell back).
       const WICK_TOL = 0.0015; // 0.15%
       const tp1Band = trade.tp1 * WICK_TOL;
       const slBand  = trade.sl * WICK_TOL;
-      // Use the candle low/high (wick-aware) so a wick that touches SL/TP
-      // between polls is caught even if price closed back away.
+      
       const hitFromCandle = (level, band, isLow) => {
-        // isLow=true → check candle LOW against level (for LONG SL / SHORT TP)
-        // isLow=false → check candle HIGH against level (for LONG TP / SHORT SL)
         const ref = isLow ? curLow : curHigh;
         if (ref == null) return false;
         return isLong
           ? (isLow ? (ref <= level + band) : (ref >= level - band))
           : (isLow ? (ref >= level - band) : (ref <= level + band));
       };
-      const hitTp1 = hitFromCandle(trade.tp1, tp1Band, false); // TP touched via HIGH (LONG) / LOW (SHORT)
-      const hitSl  = hitFromCandle(trade.sl, slBand, true);    // SL touched via LOW (LONG) / HIGH (SHORT)
 
       if (trade.status === 'PARTIAL') {
-        // Already partial-closed: 70% banked at TP1, SL moved to breakeven.
-        // Now watching for TP2 (full win) or breakeven SL (still a win on net).
+        // ── PARTIAL MODE (70% banked @ TP1, 30% runner trailing to TP2) ──
         const tp2Band = trade.tp2 * WICK_TOL;
-        const hitTp2 = hitFromCandle(trade.tp2, tp2Band, false); // TP2 touched via HIGH (LONG) / LOW (SHORT)
+        const hitTp2 = hitFromCandle(trade.tp2, tp2Band, false);
+        const hitSl  = hitFromCandle(trade.sl, slBand, true);
+
+        // 1. Dynamic Ratchet Trailing SL towards TP2
+        let atr = trade.atr14;
+        if (!atr && entryPrice && trade.sl) {
+          atr = Math.abs(entryPrice - trade.sl) / 1.5;
+        }
+        if (atr > 0 && currentPrice && entryPrice) {
+          const feeBuffer = isLong ? 1.0005 : 0.9995;
+          const beSl = entryPrice * feeBuffer;
+          const rawTrail = isLong ? (currentPrice - (1.2 * atr)) : (currentPrice + (1.2 * atr));
+          const currentSl = trade.sl;
+          
+          // Ratchet rule: SL moves ONLY in profit direction, never backwards, and never below Break-Even!
+          const canRatchet = isLong
+            ? (rawTrail > currentSl && rawTrail >= beSl)
+            : (rawTrail < currentSl && rawTrail <= beSl);
+
+          if (canRatchet) {
+            await updateTradeLevels(trade.id, {
+              sl: rawTrail,
+              entry_low: trade.entryLow,
+              entry_high: trade.entryHigh,
+              tp1: trade.tp1,
+              tp2: trade.tp2
+            });
+            trade.sl = rawTrail;
+            trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, newTrailingSl: rawTrail.toFixed(4) }, '🛡️ Dynamic Trailing SL tightened in profit');
+          }
+        }
+
+        // 2. Check exits for runner (TP2 or Trailing Stop / BE)
         if (hitTp2) {
           reviewedThisSession.add(trade.id);
           await updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
           await removeSignalByInstrument(trade.instrument, trade.direction);
           onTradeClosed('SUCCESS');
           trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '🎯 PARTIAL trade hit TP2 — full SUCCESS (70%@TP1 + 30%@TP2)');
-          // Win-review is now MANUAL (button on trade card) to save AI credits.
         } else if (hitSl) {
-          // Breakeven SL hit: 70% already won at TP1, 30% exited at breakeven → net win.
           reviewedThisSession.add(trade.id);
-          await updateTradeStatus(trade.id, 'SUCCESS', currentPrice, trade.entry_price);
+          await updateTradeStatus(trade.id, 'SUCCESS', trade.sl, trade.entry_price);
           await removeSignalByInstrument(trade.instrument, trade.direction);
           onTradeClosed('SUCCESS');
-          trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '✅ PARTIAL trade hit breakeven SL — net WIN (70% banked @TP1)');
-          // Win-review is now MANUAL (button on trade card) to save AI credits.
+          trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice, exitSl: trade.sl }, '✅ PARTIAL trade hit Trailing/BE SL — Net WIN (70% banked @TP1)');
         }
-      } else if (hitTp1) {
-        // First TP1 hit: close 70% at TP1, move SL to breakeven, trail 30% to TP2.
-        const entryPrice = trade.entry_price ?? trade.entryPrice;
-        const beSl = entryPrice; // breakeven stop for the remaining 30%
-        await updateTradeStatus(trade.id, 'PARTIAL', currentPrice, entryPrice, beSl);
-        trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '🔪 PARTIAL CLOSE: 70% @TP1, SL→breakeven, 30% trails to TP2');
-        // Keep the signal alive (don't removeSignal) — still monitoring for TP2/BE.
-        // Win review for the banked 70% portion is now MANUAL (button on trade card).
 
-      } else if (hitSl) {
-        // SL hit: record exit at the SL price (not the live price spike) for correct R.
-        reviewedThisSession.add(trade.id);
-        const slPrice = trade.sl;
-        await updateTradeStatus(trade.id, 'FAILED', slPrice, trade.entry_price);
-        await removeSignalByInstrument(trade.instrument, trade.direction);
-        onTradeClosed('FAILED');
-        trackerLog.warn({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '❌ Trade hit STOP LOSS');
+      } else {
+        // ── ACTIVE MODE (Monitoring for initial TP1 or initial SL) ──
+        const hitTp1 = hitFromCandle(trade.tp1, tp1Band, false);
+        const hitSl  = hitFromCandle(trade.sl, slBand, true);
 
-        // Fire post-mortem asynchronously (don't block monitor loop)
-        triggerPostMortem(trade).catch(e =>
-          trackerLog.error({ tradeId: trade.id, err: e.message }, 'Post-mortem failed')
-        );
+        if (hitTp1) {
+          // First TP1 hit: bank 70% at TP1, move SL to breakeven + fee buffer, trail 30% to TP2
+          const feeBuffer = isLong ? 1.0005 : 0.9995;
+          const beSl = entryPrice ? (entryPrice * feeBuffer) : (trade.entry_price * feeBuffer);
+          await updateTradeStatus(trade.id, 'PARTIAL', currentPrice, entryPrice, beSl);
+          trade.status = 'PARTIAL';
+          trade.sl = beSl;
+          trackerLog.info({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice, beSl }, '🔪 PARTIAL CLOSE: 70% @TP1, SL→Break-Even (+0.05% fee cover), 30% trails to TP2');
+
+        } else if (hitSl) {
+          // SL hit: record exit at the SL price for correct R calculation
+          reviewedThisSession.add(trade.id);
+          const slPrice = trade.sl;
+          await updateTradeStatus(trade.id, 'FAILED', slPrice, trade.entry_price);
+          await removeSignalByInstrument(trade.instrument, trade.direction);
+          onTradeClosed('FAILED');
+          trackerLog.warn({ tradeId: trade.id, symbol: trade.instrument, price: currentPrice }, '❌ Trade hit STOP LOSS');
+
+          // Fire post-mortem asynchronously
+          triggerPostMortem(trade).catch(e =>
+            trackerLog.error({ tradeId: trade.id, err: e.message }, 'Post-mortem failed')
+          );
+        }
       }
     }
   }

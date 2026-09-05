@@ -325,6 +325,52 @@ export async function getDirectionalEdge() {
   return edge;
 }
 
+export async function getAssetEdge(instrument, direction = null) {
+  const sym = (instrument || '').toUpperCase().trim();
+  let query = (await client()).from('trades').select('direction, status, close_price, entry_price, sl')
+    .eq('instrument', sym).in('status', ['SUCCESS', 'FAILED']);
+  if (direction) {
+    query = query.eq('direction', direction.toUpperCase());
+  }
+  const { data: rows, error } = await query;
+  if (error || !rows) {
+    return { instrument: sym, direction: direction || 'ALL', wins: 0, losses: 0, total: 0, winRate: null, avgR: 0, isFavorable: false, isUnfavorable: false, bonus: 0 };
+  }
+
+  let wins = 0;
+  let losses = 0;
+  let totalR = 0;
+
+  for (const r of rows) {
+    if (r.status === 'SUCCESS') wins++;
+    else losses++;
+    if (r.entry_price && r.sl) {
+      const risk = Math.abs(r.entry_price - r.sl);
+      if (risk > 0 && r.close_price) {
+        const pnl = r.direction === 'LONG' ? (r.close_price - r.entry_price) : (r.entry_price - r.close_price);
+        totalR += (pnl / risk);
+      }
+    }
+  }
+
+  const total = wins + losses;
+  const winRate = total > 0 ? parseFloat(((wins / total) * 100).toFixed(1)) : null;
+  const avgR = total > 0 ? parseFloat((totalR / total).toFixed(2)) : 0;
+
+  return {
+    instrument: sym,
+    direction: direction ? direction.toUpperCase() : 'ALL',
+    wins,
+    losses,
+    total,
+    winRate,
+    avgR,
+    isFavorable: total >= 3 && winRate >= 65,
+    isUnfavorable: total >= 3 && winRate < 40,
+    bonus: (total >= 3 && winRate >= 70) ? 8 : (total >= 3 && winRate >= 60) ? 4 : (total >= 3 && winRate < 40) ? -10 : 0
+  };
+}
+
 export async function getPriceHistory(tradeId) {
   const { data, error } = await (await client()).from('price_history').select('price, sampled_at').eq('trade_id', tradeId).order('id', { ascending: true });
   if (error) return [];
