@@ -555,7 +555,9 @@ export function expireStalePending() {
 // never resolved). Expire it as 'EXPIRED' (NOT deleted — we keep the history)
 // so the scanner can produce a fresh setup for that symbol.
 // ─────────────────────────────────────────────
-export const ACTIVE_EXPIRY_HOURS = 96;
+export const ACTIVE_EXPIRY_HOURS = 36; // Reduced from 96h: long-running stale ACTIVE trades
+                                        // block the scanner from re-scanning the symbol.
+                                        // 36h is enough for a valid 1h-chart trade to play out.
 
 export function expireStaleActive() {
   const cutoff = new Date(Date.now() - ACTIVE_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
@@ -570,6 +572,25 @@ export function expireStaleActive() {
     dbLog.info({ expired: res.changes, olderThan: cutoff }, 'Expired stale ACTIVE trades');
   }
   return expiring; // array of trade rows that just expired (empty if none)
+}
+
+// ─────────────────────────────────────────────
+// STALE NEEDS_CONFIRMATION EXPIRY
+// A PENDING setup with [NEEDS_CONFIRMATION] tag that never gets upgraded
+// after 12h is considered a deadlock — the weak conditions that caused it
+// likely haven't improved. Expire it so the scanner can re-scan fresh.
+// ─────────────────────────────────────────────
+export const NEEDS_CONFIRMATION_EXPIRY_HOURS = 12;
+
+export function expireStaleNeedsConfirmation() {
+  const cutoff = new Date(Date.now() - NEEDS_CONFIRMATION_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  const res = db.prepare(
+    `DELETE FROM trades WHERE status = 'PENDING' AND reasoning LIKE '%[NEEDS_CONFIRMATION]%' AND created_at < ?`
+  ).run(cutoff);
+  if (res.changes > 0) {
+    dbLog.info({ expired: res.changes, olderThan: cutoff }, 'Expired stale NEEDS_CONFIRMATION PENDING setups');
+  }
+  return res.changes;
 }
 
 // ─────────────────────────────────────────────

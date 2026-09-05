@@ -24,6 +24,7 @@ export const DB_MODE = USE_SUPABASE ? 'supabase' : 'sqlite';
 // Re-export the PENDING/ACTIVE expiry constants (used by tradeTracker)
 export const PENDING_EXPIRY_HOURS = backend.PENDING_EXPIRY_HOURS;
 export const ACTIVE_EXPIRY_HOURS = backend.ACTIVE_EXPIRY_HOURS;
+export const NEEDS_CONFIRMATION_EXPIRY_HOURS = backend.NEEDS_CONFIRMATION_EXPIRY_HOURS;
 
 // Re-export every public function from the chosen backend.
 export const registerTrade        = backend.registerTrade;
@@ -50,6 +51,7 @@ export const markAlertsSeen       = backend.markAlertsSeen;
 export const hasActiveTrade       = backend.hasActiveTrade;
 export const expireStalePending   = backend.expireStalePending;
 export const expireStaleActive    = backend.expireStaleActive;
+export const expireStaleNeedsConfirmation = backend.expireStaleNeedsConfirmation;
 export const migrateFromJSON      = backend.migrateFromJSON;
 
 // Re-export the raw better-sqlite3 `db` object only for SQLite mode (some

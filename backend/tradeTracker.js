@@ -20,7 +20,8 @@ import {
   getPriceHistory,
   markEnteredZone,
   expireStalePending,
-  expireStaleActive
+  expireStaleActive,
+  expireStaleNeedsConfirmation
 } from './db.js';
 import { analyzeChart } from './aiProvider.js';
 import { trackerLog } from './logger.js';
@@ -189,9 +190,11 @@ async function fetchPrices(symbols) {
 const reviewedThisSession = new Set();
 
 export async function monitorTrades() {
-  // Expire stale PENDING setups that never entered their zone (72h cutoff)
+  // Expire stale PENDING setups that never entered their zone (24h cutoff)
   try { await expireStalePending(); } catch (e) { trackerLog.error({ err: e.message }, 'expireStalePending error'); }
-  // Expire stale ACTIVE trades that never hit TP/SL (96h cutoff — e.g. weekend Forex closure)
+  // Expire stale NEEDS_CONFIRMATION PENDING setups (12h deadlock cutoff)
+  try { await expireStaleNeedsConfirmation(); } catch (e) { trackerLog.error({ err: e.message }, 'expireStaleNeedsConfirmation error'); }
+  // Expire stale ACTIVE trades that never hit TP/SL (36h cutoff)
   try {
     const expired = await expireStaleActive();
     for (const t of expired) {

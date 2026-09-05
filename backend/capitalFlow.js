@@ -162,7 +162,9 @@ export async function getMacroOverlay(force = false) {
       if (q && q.close) {
         const ch = parseFloat(q.percent_change ?? q.rolling_1d_change ?? 0);
         result.dxyChange = +ch.toFixed(2);
-        result.dxyDirection = ch >= 0.1 ? 'UP' : ch <= -0.1 ? 'DOWN' : 'FLAT';
+        // Threshold raised from 0.1% → 0.3% to avoid blocking LONGs on tiny USD ticks.
+        // Only a genuine USD breakout (>0.3%) is a real crypto headwind.
+        result.dxyDirection = ch >= 0.3 ? 'UP' : ch <= -0.3 ? 'DOWN' : 'FLAT';
       }
     } catch { /* non-fatal */ }
   }

@@ -396,21 +396,22 @@ Return ONLY valid JSON (no markdown, no extra text):
     }
 
     // 2d. Weak-regime / conflicting-signal guard
-    // Fires when EITHER the regime is weak (CHOPPY/RANGE) OR the AI's own
-    // reasoning flags uncertainty/conflict ("wait for", "caution", etc.) —
-    // regardless of what setupStatus the AI returned. Previously this only ran
-    // when setupStatus==='ACTIVE', which let the AI emit ACTIVE while its own
-    // reasoning said "waiting for cleaner confirmation" and slip through.
+    // Fires ONLY when the regime is CHOPPY (not RANGE — a ranging market still
+    // produces valid GP retracements and OTE setups) OR when the AI's reasoning
+    // explicitly flags irreconcilable structural conflicts. Reduced keyword list:
+    // we keep only words that signal genuine uncertainty, NOT normal analysis language
+    // like "mean reversion" (which IS the strategy) or "oversold" (which is a signal).
     const regime = engine.regime || 'RANGE';
-    const weakRegime = regime === 'CHOPPY' || regime === 'RANGE';
+    const weakRegime = regime === 'CHOPPY'; // RANGE removed: valid OTE setups occur in ranging markets
     const reasoningTxt = (aiResult.reasoning || '').toLowerCase();
-    const conflictWords = ['conflicting', 'caution', 'wait for', 'uncertainty', 'oversold',
-      'mean reversion', 'mean-reversion', 'cleaner momentum', 'clearer alignment', 'mixed',
-      'waiting for'];
+    const conflictWords = [
+      'conflicting', 'wait for confirmation', 'unclear direction',
+      'strong conflict', 'htf conflict', 'no valid setup'
+    ];
     const hasConflict = conflictWords.some(w => reasoningTxt.includes(w));
 
     if (weakRegime || hasConflict) {
-      const why = weakRegime ? 'weak regime (' + regime + ')' : 'AI flagged conflicting/uncertain signals';
+      const why = weakRegime ? 'choppy regime — no directional bias' : 'AI flagged irreconcilable conflict';
       scannerLog.info({ symbol, scanId, regime, hasConflict, aiStatus: aiResult.setupStatus }, 'Weak setup — forcing WAIT (' + why + ')');
       aiResult.setupStatus = 'WAIT';
       if (!/^\[WEAK SETUP/.test(aiResult.reasoning || '')) {
@@ -419,23 +420,39 @@ Return ONLY valid JSON (no markdown, no extra text):
       }
     }
 
-    // 3. Geometry sanity check
+    // 3. Geometry sanity check — AUTO-CORRECT instead of hard downgrade.
+    // If TP1 is on the wrong side of entry (e.g. TP1 < Entry for a LONG), the engine
+    // computed an inverted target. Instead of rejecting the trade, recompute TP1/TP2
+    // using the SL distance and a 2.05:1 R:R floor — preserving the valid entry/SL
+    // while fixing the geometry in-place.
     const tradeDir   = ote.direction;
     const idealEntry = ote.entry?.price;
-    const tp1Val     = ote.tp1;
+    let tp1Val     = ote.tp1;
     const slVal      = ote.sl;
 
     const longOk  = tradeDir === 'LONG'  && tp1Val > idealEntry && slVal < idealEntry;
     const shortOk = tradeDir === 'SHORT' && tp1Val < idealEntry && slVal > idealEntry;
 
     if (!longOk && !shortOk) {
-      scannerLog.warn({ symbol, scanId, direction: tradeDir, entry: idealEntry, sl: slVal, tp1: tp1Val }, 'Rejected — geometry invalid');
-      downgradeReasons.push(`GEOMETRY INVALID — entry/SL/TP1 misaligned for ${tradeDir} (entry=${idealEntry}, sl=${slVal}, tp1=${tp1Val})`);
+      if (idealEntry > 0 && slVal > 0) {
+        // Auto-correct: recompute TP1/TP2 from the valid entry/SL using R:R 2.05
+        const autoRiskDist = Math.abs(idealEntry - slVal);
+        const tpSign = tradeDir === 'LONG' ? 1 : -1;
+        ote.tp1 = idealEntry + tpSign * 2.05 * autoRiskDist;
+        ote.tp2 = idealEntry + tpSign * 3.05 * autoRiskDist;
+        tp1Val = ote.tp1;
+        scannerLog.warn({ symbol, scanId, direction: tradeDir, entry: idealEntry, sl: slVal, oldTp1: tp1Val, newTp1: ote.tp1 },
+          'Geometry auto-corrected — TP1/TP2 recomputed from entry/SL at 2.05:1 R:R');
+      } else {
+        // Truly invalid geometry (zero entry or SL) — downgrade as fallback
+        scannerLog.warn({ symbol, scanId, direction: tradeDir, entry: idealEntry, sl: slVal, tp1: tp1Val }, 'Rejected — geometry invalid (zero entry/SL)');
+        downgradeReasons.push(`GEOMETRY INVALID — entry/SL/TP1 misaligned for ${tradeDir} (entry=${idealEntry}, sl=${slVal}, tp1=${tp1Val})`);
+      }
     }
 
-    // 4. Minimum 1.0:1 R:R check
+    // 4. Minimum 1.0:1 R:R check (against the potentially auto-corrected TP1)
     const riskDist   = Math.abs(idealEntry - slVal);
-    const rewardDist = Math.abs(tp1Val - idealEntry);
+    const rewardDist = Math.abs(ote.tp1 - idealEntry);
     const rr = riskDist > 0 ? rewardDist / riskDist : 0;
 
     if (rr < 1.0) {
