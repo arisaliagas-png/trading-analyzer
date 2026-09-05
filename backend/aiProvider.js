@@ -473,6 +473,61 @@ export async function askAI(systemPrompt, messages, forceProvider = null) {
   throw new Error(`Unsupported AI provider: ${provider}`);
 }
 
+// ── Zero-Cost AI Coach Execution Engine (Gemini 2.0 Flash + OpenRouter Fallback) ──
+export async function askCoachAI(systemPrompt, messages) {
+  // 1. Try Gemini 2.0 / 1.5 Flash (Free Tier Quota)
+  const geminiKey = process.env.GEMINI_API_KEY;
+  if (geminiKey) {
+    const models = ['gemini-2.0-flash', 'gemini-1.5-flash'];
+    const contents = messages.map(m => ({
+      role: m.role === 'assistant' ? 'model' : 'user',
+      parts: [{ text: m.content }]
+    }));
+    for (const model of models) {
+      try {
+        const res = await fetch(
+          `https://generativelanguage.googleapis.com/v1beta/models/${model}:generateContent?key=${geminiKey}`,
+          {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify({
+              contents,
+              systemInstruction: { parts: [{ text: systemPrompt }] },
+              generationConfig: { temperature: 0.6, maxOutputTokens: 2500 }
+            }),
+            signal: AbortSignal.timeout(12000)
+          }
+        );
+        if (res.ok) {
+          const data = await res.json();
+          const reply = data.candidates?.[0]?.content?.parts?.[0]?.text;
+          if (reply && reply.trim()) return reply.trim();
+        }
+      } catch (e) {
+        // try next model
+      }
+    }
+  }
+
+  // 2. Try OpenRouter Free Models
+  const openrouterKey = process.env.OPENROUTER_API_KEY;
+  if (openrouterKey) {
+    try {
+      const reply = await askAI(systemPrompt, messages, 'openrouter');
+      if (reply && reply.trim()) return reply.trim();
+    } catch (e) {
+      // try next
+    }
+  }
+
+  // 3. Fallback: Generic askAI if provider is non-Anthropic
+  if (process.env.AI_PROVIDER && process.env.AI_PROVIDER !== 'anthropic') {
+    return await askAI(systemPrompt, messages, process.env.AI_PROVIDER);
+  }
+
+  throw new Error('Δεν ήταν δυνατή η σύνδεση με δωρεάν AI πάροχο (Gemini/OpenRouter). Παρακαλώ έλεγξε το GEMINI_API_KEY.');
+}
+
 async function executeSingleProvider(provider, systemPrompt, userContent, mimeType, imageBuffer) {
   if (provider === 'gemini') {
     const apiKey = process.env.GEMINI_API_KEY;
