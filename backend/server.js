@@ -18,6 +18,7 @@ import { computeAnalytics } from './analytics.js';
 import { serverLog } from './logger.js';
 import { startLiquidityCapture } from './liquidityCapture.js';
 import { getWalls } from './liquidityStore.js';
+import { getLiveFlow } from './liveFlow.js';
 import { resetCircuitBreaker, getCircuitBreakerState, ACCOUNT_EQUITY } from './riskManager.js';
 
 dotenv.config();
@@ -765,6 +766,20 @@ app.get('/api/early-signals', async (req, res) => {
     res.json(signals);
   } catch (e) {
     res.status(500).json({ available: false, error: e.message });
+  }
+});
+
+// ─────────────────────────────────────────────
+// LIVE FLOW — Real-time Market Depth, CVD & Whale Trades
+// ─────────────────────────────────────────────
+app.get('/api/live-flow', async (req, res) => {
+  const symbol = (req.query.symbol || 'BTCUSDT').toUpperCase();
+  try {
+    const flow = await getLiveFlow(symbol);
+    res.json(flow);
+  } catch (e) {
+    serverLog.error({ err: e.message, symbol }, 'Live flow fetch failed');
+    res.status(500).json({ error: e.message });
   }
 });
 

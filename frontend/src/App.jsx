@@ -727,22 +727,29 @@ export default function App() {
     }
   }, [l]);
 
-  // Fetch persistent book history (Liquidity Map)
-  const fetchLiquidity = async (sym) => {
-    setLiquidityLoading(true);
+  // Fetch real-time live flow & depth map (Liquidity Map 2.0)
+  const fetchLiquidity = async (sym = rl, showLoading = false) => {
+    if (showLoading) setLiquidityLoading(true);
     try {
-      const r = await fetch(`${API_BASE}/api/book-history?symbol=${sym}`);
-      const d = await r.json();
-      setLiquidity(d);
+      const r = await fetch(`${API_BASE}/api/live-flow?symbol=${sym}`);
+      if (r.ok) {
+        const d = await r.json();
+        setLiquidity(d);
+      }
     } catch (e) {
-      setLiquidity({ available: false, error: e.message, levels: [] });
+      console.warn('Live flow fetch error:', e);
     } finally {
-      setLiquidityLoading(false);
+      if (showLoading) setLiquidityLoading(false);
     }
   };
 
   useEffect(() => {
-    if (l === 'liquidity') fetchLiquidity(rl);
+    if (l !== 'liquidity') return;
+    fetchLiquidity(rl, true);
+    const timer = setInterval(() => {
+      fetchLiquidity(rl, false);
+    }, 4000);
+    return () => clearInterval(timer);
   }, [l, rl]);
 
   // Render heatmap canvas
@@ -1926,76 +1933,510 @@ export default function App() {
         </div>
       )}
 
-      {l === 'liquidity' && (
-        <div className="liquidity-map-tab" style={{ padding: '1rem 0' }}>
-          <div className="analytics-header" style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '1.5rem' }}>
-            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
-              <span style={{ fontSize: '1.5rem' }}>🗺️</span>
-              <h2 style={{ margin: 0, fontSize: '1.3rem' }}>Liquidity Map — {rl}</h2>
+      {l === 'liquidity' && (() => {
+        const LIQ_ASSETS = ['BTCUSDT', 'ETHUSDT', 'SOLUSDT', 'BNBUSDT', 'XRPUSDT', 'SUIUSDT', 'DOGEUSDT', 'ADAUSDT', 'LINKUSDT', 'AVAXUSDT'];
+        const data = liquidity;
+        const ticker = data?.ticker || {};
+        const midP = data?.midPrice || ticker.price || 0;
+        const mf = data?.moneyFlow || {};
+        const whales = data?.whaleTrades || [];
+        const ob = data?.orderBook || { bids: [], asks: [] };
+        const dc = data?.depthChart || { bids: [], asks: [], maxCumulative: 1 };
+
+        const fP = (p) => {
+          if (!p || isNaN(p)) return '—';
+          if (p >= 1000) return p.toLocaleString('en-US', { minimumFractionDigits: 2, maximumFractionDigits: 2 });
+          if (p >= 1) return p.toFixed(4);
+          return p.toFixed(6);
+        };
+        const fQ = (q) => {
+          if (!q || isNaN(q)) return '0';
+          if (q >= 1000000) return (q / 1000000).toFixed(2) + 'M';
+          if (q >= 1000) return (q / 1000).toFixed(1) + 'K';
+          return q.toFixed(2);
+        };
+        const fD = (d) => {
+          if (!d || isNaN(d)) return '$0';
+          if (d >= 1000000) return `$${(d / 1000000).toFixed(2)}M`;
+          if (d >= 1000) return `$${(d / 1000).toFixed(1)}K`;
+          return `$${Math.round(d)}`;
+        };
+        const timeAgo = (t) => {
+          if (!t) return '';
+          const diff = Math.max(0, Math.floor((Date.now() - t) / 1000));
+          if (diff < 60) return `${diff}s ago`;
+          if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+          return `${Math.floor(diff / 3600)}h ago`;
+        };
+
+        // Depth Chart SVG path calculations
+        const svgW = 620, svgH = 220;
+        const midX = svgW / 2;
+        const maxCum = Math.max(dc.maxCumulative, 1);
+        const bids = dc.bids || [];
+        const asks = dc.asks || [];
+
+        // Bids path: from midX (y = 200) moving left to 20
+        let bidAreaPath = `M ${midX} 200`;
+        let bidStrokePath = '';
+        if (bids.length > 0) {
+          bids.forEach((b, idx) => {
+            const x = midX - ((idx + 1) / bids.length) * (midX - 25);
+            const y = 200 - (b.cumulative / maxCum) * 160;
+            bidAreaPath += ` L ${x} ${y}`;
+            bidStrokePath += (idx === 0 ? `M ${midX} 200 L ${x} ${y}` : ` L ${x} ${y}`);
+          });
+          const lastBidX = midX - (midX - 25);
+          bidAreaPath += ` L ${lastBidX} 200 Z`;
+        }
+
+        // Asks path: from midX (y = 200) moving right to svgW - 20
+        let askAreaPath = `M ${midX} 200`;
+        let askStrokePath = '';
+        if (asks.length > 0) {
+          asks.forEach((a, idx) => {
+            const x = midX + ((idx + 1) / asks.length) * (midX - 25);
+            const y = 200 - (a.cumulative / maxCum) * 160;
+            askAreaPath += ` L ${x} ${y}`;
+            askStrokePath += (idx === 0 ? `M ${midX} 200 L ${x} ${y}` : ` L ${x} ${y}`);
+          });
+          const lastAskX = midX + (midX - 25);
+          askAreaPath += ` L ${lastAskX} 200 Z`;
+        }
+
+        const isPositiveChange = (ticker.change24h || 0) >= 0;
+        const isBullishCvd = (mf.cvd || 0) >= 0;
+
+        return (
+          <div className="liquidity-matrix-tab" style={{ padding: '0.5rem 0', maxWidth: '1440px', margin: '0 auto' }}>
+            
+            {/* 1. Header & Asset Selector Pills */}
+            <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', flexWrap: 'wrap', gap: '1rem', marginBottom: '1rem' }}>
+              <div>
+                <div style={{ display: 'flex', alignItems: 'center', gap: '0.6rem' }}>
+                  <span style={{ fontSize: '1.6rem' }}>⚡</span>
+                  <h2 style={{ margin: 0, fontSize: '1.4rem', fontWeight: 800, background: 'linear-gradient(135deg, #22d3ee, #10b981)', WebkitBackgroundClip: 'text', WebkitTextFillColor: 'transparent' }}>
+                    LIQUIDITY & ORDER FLOW MATRIX
+                  </h2>
+                  <span style={{
+                    display: 'inline-flex', alignItems: 'center', gap: '0.35rem',
+                    padding: '0.2rem 0.6rem', borderRadius: '12px', fontSize: '0.72rem', fontWeight: 700,
+                    background: 'rgba(16,185,129,0.15)', color: '#10b981', border: '1px solid rgba(16,185,129,0.3)'
+                  }}>
+                    <span style={{ width: '6px', height: '6px', borderRadius: '50%', background: '#10b981', boxShadow: '0 0 8px #10b981', animation: 'pulse 1.5s infinite' }} />
+                    LIVE 4s STREAM
+                  </span>
+                </div>
+                <p style={{ margin: '0.2rem 0 0', fontSize: '0.8rem', color: 'var(--color-muted)' }}>
+                  Institutional Order Depth · Real-Time CVD Delta · Whale Activity Radar
+                </p>
+              </div>
+
+              <div style={{ display: 'flex', alignItems: 'center', gap: '0.75rem' }}>
+                <button
+                  onClick={() => fetchLiquidity(rl, true)}
+                  disabled={liquidityLoading}
+                  style={{
+                    padding: '0.45rem 1rem', borderRadius: '8px', border: '1px solid rgba(34,211,238,0.3)',
+                    background: 'rgba(34,211,238,0.1)', color: '#22d3ee', fontWeight: 700, fontSize: '0.82rem',
+                    cursor: liquidityLoading ? 'not-allowed' : 'pointer', display: 'flex', alignItems: 'center', gap: '0.4rem',
+                    transition: 'all 0.2s'
+                  }}
+                >
+                  {liquidityLoading ? <span className="spinner-sm" /> : '🔄'} {liquidityLoading ? 'Συγχρονισμός…' : 'Ανανέωση'}
+                </button>
+              </div>
             </div>
-            <button
-              onClick={() => fetchLiquidity(rl)}
-              disabled={liquidityLoading}
-              style={{ padding: '0.5rem 1rem', borderRadius: '8px', border: '1px solid var(--border)', background: 'var(--card)', color: 'var(--foreground)', cursor: 'pointer' }}
-            >
-              {liquidityLoading ? '⏳ Φόρτωση…' : '🔄 Ανανέωση'}
-            </button>
-          </div>
 
-          {!liquidity && <p style={{ color: 'var(--muted-foreground)' }}>Φόρτωση ιστορικού ρευστότητας…</p>}
-
-          {liquidity && !liquidity.available && (
-            <div style={{ padding: '1rem', borderRadius: '8px', background: 'rgba(239,68,68,0.1)', border: '1px solid rgba(239,68,68,0.3)' }}>
-              <p style={{ margin: 0, color: 'var(--foreground)' }}>
-                ⚠️ Δεν υπάρχει ιστορικό για το {rl}. Τρέξε το capture script (`node book_capture.mjs {rl} 76500 77000 5`) για να ξεκινήσει η καταγραφή.
-              </p>
-            </div>
-          )}
-
-          {liquidity && liquidity.available && (
-            <div style={{ display: 'flex', flexDirection: 'column', gap: '2px' }}>
-              {liquidity.levels.length === 0 && (
-                <p style={{ color: 'var(--muted-foreground)' }}>Κανένα σημαντικό wall ακόμα καταγεγραμμένο. Το script τρέχει;</p>
-              )}
-              {liquidity.levels.map((lvl) => {
-                const maxQ = Math.max(...liquidity.levels.map(l => l.maxQty), 1);
-                const pct = (lvl.maxQty / maxQ) * 100;
-                const isBid = lvl.side === 'bid';
+            {/* Asset Selector Tabs */}
+            <div style={{ display: 'flex', gap: '0.4rem', overflowX: 'auto', paddingBottom: '0.6rem', marginBottom: '1.2rem' }}>
+              {LIQ_ASSETS.map((sym) => {
+                const isSel = rl === sym;
                 return (
-                  <div key={lvl.price} style={{ display: 'flex', alignItems: 'center', gap: '0.5rem', fontSize: '0.85rem' }}>
-                    <span style={{ width: '90px', textAlign: 'right', fontFamily: 'JetBrains Mono, monospace', color: 'var(--muted-foreground)' }}>
-                      ${lvl.price.toFixed(0)}
-                    </span>
-                    <div style={{ flex: 1, height: '18px', background: 'rgba(255,255,255,0.03)', borderRadius: '3px', position: 'relative', overflow: 'hidden' }}>
-                      <div
-                        style={{
-                          position: 'absolute',
-                          left: 0,
-                          top: 0,
-                          bottom: 0,
-                          width: `${pct}%`,
-                          background: isBid ? 'rgba(16,185,129,0.5)' : 'rgba(239,68,68,0.5)',
-                          borderLeft: `3px solid ${isBid ? '#10b981' : '#ef4444'}`
-                        }}
-                      />
-                      <span style={{ position: 'absolute', left: '8px', top: '1px', fontSize: '0.75rem', color: 'var(--foreground)' }}>
-                        {isBid ? '🟢 BID' : '🔴 ASK'} {lvl.maxQty.toFixed(1)} BTC
-                        {lvl.hits > 1 && <span style={{ color: 'var(--muted-foreground)' }}> · {lvl.hits}×</span>}
-                      </span>
-                    </div>
-                  </div>
+                  <button
+                    key={sym}
+                    onClick={() => {
+                      setRl(sym);
+                      fetchLiquidity(sym, true);
+                    }}
+                    style={{
+                      padding: '0.45rem 0.9rem', borderRadius: '20px', fontSize: '0.82rem', fontWeight: 700,
+                      fontFamily: 'var(--mono)', cursor: 'pointer', whiteSpace: 'nowrap', transition: 'all 0.2s',
+                      background: isSel ? 'linear-gradient(135deg, rgba(34,211,238,0.25), rgba(16,185,129,0.2))' : 'rgba(255,255,255,0.04)',
+                      color: isSel ? '#22d3ee' : 'var(--color-muted)',
+                      border: isSel ? '1px solid rgba(34,211,238,0.5)' : '1px solid rgba(255,255,255,0.08)',
+                      boxShadow: isSel ? '0 0 14px rgba(34,211,238,0.2)' : 'none'
+                    }}
+                  >
+                    {sym.replace('USDT', '')}
+                  </button>
                 );
               })}
             </div>
-          )}
 
-          {liquidity && liquidity.available && liquidity.levels.length > 0 && (
-            <p style={{ marginTop: '1rem', fontSize: '0.8rem', color: 'var(--muted-foreground)' }}>
-              📊 {liquidity.levels.length} επίπεδα καταγεγραμμένα · 🟢 Πράσινο = bid walls (support) · 🔴 Κόκκινο = ask walls (resistance)
-            </p>
-          )}
-        </div>
-      )}
+            {/* 2. Cyber Ticker Banner */}
+            <div style={{
+              display: 'grid', gridTemplateColumns: 'repeat(auto-fit, minmax(180px, 1fr))', gap: '1rem',
+              background: 'rgba(8, 20, 28, 0.85)', border: '1px solid rgba(34,211,238,0.2)',
+              borderRadius: '12px', padding: '1rem 1.25rem', marginBottom: '1.25rem',
+              boxShadow: '0 8px 30px rgba(0,0,0,0.4)', backdropFilter: 'blur(12px)'
+            }}>
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  {rl} Live Price
+                </div>
+                <div style={{ fontSize: '1.5rem', fontWeight: 800, fontFamily: 'var(--mono)', color: '#22d3ee', textShadow: '0 0 12px rgba(34,211,238,0.4)' }}>
+                  ${fP(midP)}
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  24h Change
+                </div>
+                <div style={{
+                  fontSize: '1.2rem', fontWeight: 700, fontFamily: 'var(--mono)',
+                  color: isPositiveChange ? '#10b981' : '#ef4444', display: 'flex', alignItems: 'center', gap: '0.3rem'
+                }}>
+                  {isPositiveChange ? '▲ +' : '▼ '}{(ticker.change24h || 0).toFixed(2)}%
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  24h High / Low
+                </div>
+                <div style={{ fontSize: '0.92rem', fontWeight: 600, fontFamily: 'var(--mono)', color: '#cbd5e1' }}>
+                  <span style={{ color: '#10b981' }}>${fP(ticker.high24h)}</span> / <span style={{ color: '#ef4444' }}>${fP(ticker.low24h)}</span>
+                </div>
+              </div>
+
+              <div>
+                <div style={{ fontSize: '0.7rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                  24h Volume (USDT)
+                </div>
+                <div style={{ fontSize: '1.05rem', fontWeight: 700, fontFamily: 'var(--mono)', color: '#e2e8f0' }}>
+                  {fD(ticker.quoteVolume)}
+                </div>
+              </div>
+            </div>
+
+            {/* 3. Main Two-Column Cyber Grid */}
+            <div style={{ display: 'grid', gridTemplateColumns: 'minmax(0, 1.35fr) minmax(0, 1fr)', gap: '1.25rem', alignItems: 'start' }}>
+              
+              {/* LEFT COLUMN: Depth Chart & Order Book Ladder */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                
+                {/* SVG Mountain Depth Chart */}
+                <div style={{
+                  background: 'rgba(8, 20, 28, 0.85)', border: '1px solid rgba(16,185,129,0.2)',
+                  borderRadius: '12px', padding: '1.25rem', position: 'relative', overflow: 'hidden'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.75rem' }}>
+                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      📈 Cumulative Mountain Depth
+                    </h3>
+                    <div style={{ display: 'flex', gap: '1rem', fontSize: '0.75rem', fontFamily: 'var(--mono)' }}>
+                      <span style={{ color: '#10b981' }}>■ Bids (Support)</span>
+                      <span style={{ color: '#ef4444' }}>■ Asks (Resistance)</span>
+                    </div>
+                  </div>
+
+                  <div style={{ width: '100%', position: 'relative' }}>
+                    <svg viewBox={`0 0 ${svgW} ${svgH}`} style={{ width: '100%', height: 'auto', display: 'block', overflow: 'visible' }}>
+                      <defs>
+                        <linearGradient id="bidGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#10b981" stopOpacity="0.45" />
+                          <stop offset="100%" stopColor="#10b981" stopOpacity="0.02" />
+                        </linearGradient>
+                        <linearGradient id="askGrad" x1="0" y1="0" x2="0" y2="1">
+                          <stop offset="0%" stopColor="#ef4444" stopOpacity="0.45" />
+                          <stop offset="100%" stopColor="#ef4444" stopOpacity="0.02" />
+                        </linearGradient>
+                      </defs>
+
+                      {/* Grid lines */}
+                      <line x1="20" y1="50" x2={svgW - 20} y2="50" stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+                      <line x1="20" y1="120" x2={svgW - 20} y2="120" stroke="rgba(255,255,255,0.05)" strokeDasharray="3 3" />
+                      <line x1="20" y1="200" x2={svgW - 20} y2="200" stroke="rgba(255,255,255,0.1)" />
+
+                      {/* Bid Mountain */}
+                      {bidAreaPath && <path d={bidAreaPath} fill="url(#bidGrad)" />}
+                      {bidStrokePath && <path d={bidStrokePath} fill="none" stroke="#10b981" strokeWidth="2.2" strokeLinecap="round" />}
+
+                      {/* Ask Mountain */}
+                      {askAreaPath && <path d={askAreaPath} fill="url(#askGrad)" />}
+                      {askStrokePath && <path d={askStrokePath} fill="none" stroke="#ef4444" strokeWidth="2.2" strokeLinecap="round" />}
+
+                      {/* Center Mid-Price Line */}
+                      <line x1={midX} y1="20" x2={midX} y2="205" stroke="#22d3ee" strokeWidth="2" strokeDasharray="4 4" />
+                      <circle cx={midX} cy="200" r="4" fill="#22d3ee" style={{ filter: 'drop-shadow(0 0 6px #22d3ee)' }} />
+
+                      {/* Price Axis Labels */}
+                      <text x="25" y="215" fill="#10b981" fontSize="10" fontFamily="monospace">
+                        ${bids.length > 0 ? fP(bids[bids.length - 1].price) : ''}
+                      </text>
+                      <text x={midX} y="215" fill="#22d3ee" fontSize="11" fontWeight="bold" textAnchor="middle" fontFamily="monospace">
+                        ${fP(midP)}
+                      </text>
+                      <text x={svgW - 25} y="215" fill="#ef4444" fontSize="10" textAnchor="end" fontFamily="monospace">
+                        ${asks.length > 0 ? fP(asks[asks.length - 1].price) : ''}
+                      </text>
+
+                      {/* Max Cumulative Volume Tag */}
+                      <text x="25" y="38" fill="rgba(255,255,255,0.4)" fontSize="9" fontFamily="monospace">
+                        MAX DEPTH: {fQ(maxCum)} {rl.replace('USDT', '')}
+                      </text>
+                    </svg>
+                  </div>
+                </div>
+
+                {/* Order Book Depth Ladder */}
+                <div style={{
+                  background: 'rgba(8, 20, 28, 0.85)', border: '1px solid rgba(255,255,255,0.08)',
+                  borderRadius: '12px', padding: '1.25rem'
+                }}>
+                  <h3 style={{ margin: '0 0 1rem', fontSize: '0.95rem', fontWeight: 700, color: '#e2e8f0', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    🪜 Order Book Top Levels (Bids vs Asks)
+                  </h3>
+
+                  <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '1rem' }}>
+                    
+                    {/* Bids Ladder */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#10b981', fontWeight: 700, paddingBottom: '0.4rem', borderBottom: '1px solid rgba(16,185,129,0.2)' }}>
+                        <span>PRICE</span>
+                        <span>SIZE ({rl.replace('USDT','')})</span>
+                        <span>USD</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '0.4rem' }}>
+                        {ob.bids.slice(0, 10).map((b, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              padding: '0.22rem 0.4rem', borderRadius: '4px', fontSize: '0.78rem',
+                              fontFamily: 'var(--mono)', position: 'relative', overflow: 'hidden',
+                              background: b.isWall ? 'rgba(16,185,129,0.18)' : 'rgba(0,0,0,0.25)',
+                              border: b.isWall ? '1px solid rgba(16,185,129,0.5)' : '1px solid transparent'
+                            }}
+                          >
+                            <div style={{
+                              position: 'absolute', right: 0, top: 0, bottom: 0,
+                              width: `${b.pct}%`, background: 'rgba(16,185,129,0.18)', pointerEvents: 'none'
+                            }} />
+                            <span style={{ color: '#10b981', fontWeight: 700, zIndex: 1 }}>${fP(b.price)}</span>
+                            <span style={{ color: '#cbd5e1', zIndex: 1 }}>{fQ(b.qty)}</span>
+                            <span style={{ color: 'var(--color-muted)', fontSize: '0.72rem', zIndex: 1 }}>{fD(b.totalUsd)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                    {/* Asks Ladder */}
+                    <div>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: '#ef4444', fontWeight: 700, paddingBottom: '0.4rem', borderBottom: '1px solid rgba(239,68,68,0.2)' }}>
+                        <span>PRICE</span>
+                        <span>SIZE ({rl.replace('USDT','')})</span>
+                        <span>USD</span>
+                      </div>
+                      <div style={{ display: 'flex', flexDirection: 'column', gap: '3px', marginTop: '0.4rem' }}>
+                        {ob.asks.slice(0, 10).map((a, idx) => (
+                          <div
+                            key={idx}
+                            style={{
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              padding: '0.22rem 0.4rem', borderRadius: '4px', fontSize: '0.78rem',
+                              fontFamily: 'var(--mono)', position: 'relative', overflow: 'hidden',
+                              background: a.isWall ? 'rgba(239,68,68,0.18)' : 'rgba(0,0,0,0.25)',
+                              border: a.isWall ? '1px solid rgba(239,68,68,0.5)' : '1px solid transparent'
+                            }}
+                          >
+                            <div style={{
+                              position: 'absolute', left: 0, top: 0, bottom: 0,
+                              width: `${a.pct}%`, background: 'rgba(239,68,68,0.18)', pointerEvents: 'none'
+                            }} />
+                            <span style={{ color: '#ef4444', fontWeight: 700, zIndex: 1 }}>${fP(a.price)}</span>
+                            <span style={{ color: '#cbd5e1', zIndex: 1 }}>{fQ(a.qty)}</span>
+                            <span style={{ color: 'var(--color-muted)', fontSize: '0.72rem', zIndex: 1 }}>{fD(a.totalUsd)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+              </div>
+
+              {/* RIGHT COLUMN: Money Flow Radar & Whale Alert Feed */}
+              <div style={{ display: 'flex', flexDirection: 'column', gap: '1.25rem' }}>
+                
+                {/* Money Flow Radar Cards */}
+                <div style={{
+                  background: 'rgba(8, 20, 28, 0.85)', border: '1px solid rgba(34,211,238,0.2)',
+                  borderRadius: '12px', padding: '1.25rem', boxShadow: '0 8px 30px rgba(0,0,0,0.3)'
+                }}>
+                  <h3 style={{ margin: '0 0 1rem', fontSize: '0.95rem', fontWeight: 700, color: '#22d3ee', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                    📡 Money Flow & Pressure Radar
+                  </h3>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '1rem' }}>
+                    
+                    {/* Card 1: CVD Delta Arc & Metrics */}
+                    <div style={{
+                      background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.06)',
+                      borderRadius: '8px', padding: '0.9rem 1rem'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center' }}>
+                        <div>
+                          <div style={{ fontSize: '0.7rem', color: 'var(--color-muted)', textTransform: 'uppercase', letterSpacing: '0.06em' }}>
+                            CVD (Cumulative Volume Delta)
+                          </div>
+                          <div style={{
+                            fontSize: '1.35rem', fontWeight: 800, fontFamily: 'var(--mono)',
+                            color: isBullishCvd ? '#10b981' : '#ef4444', marginTop: '0.2rem'
+                          }}>
+                            {isBullishCvd ? '+' : ''}{fQ(mf.cvd)} {rl.replace('USDT', '')}
+                          </div>
+                        </div>
+
+                        <div style={{
+                          padding: '0.35rem 0.75rem', borderRadius: '6px', fontSize: '0.75rem', fontWeight: 800,
+                          background: isBullishCvd ? 'rgba(16,185,129,0.2)' : 'rgba(239,68,68,0.2)',
+                          color: isBullishCvd ? '#10b981' : '#ef4444',
+                          border: isBullishCvd ? '1px solid rgba(16,185,129,0.4)' : '1px solid rgba(239,68,68,0.4)'
+                        }}>
+                          {isBullishCvd ? '🟢 BUY FLOW' : '🔴 SELL FLOW'}
+                        </div>
+                      </div>
+
+                      <div style={{ display: 'flex', justifyContent: 'space-between', marginTop: '0.6rem', paddingTop: '0.6rem', borderTop: '1px solid rgba(255,255,255,0.05)', fontSize: '0.75rem', fontFamily: 'var(--mono)' }}>
+                        <span style={{ color: '#10b981' }}>Market Buys: {fD(mf.buyUsd)}</span>
+                        <span style={{ color: '#ef4444' }}>Market Sells: {fD(mf.sellUsd)}</span>
+                      </div>
+                    </div>
+
+                    {/* Card 2: Bid / Ask Ratio Bar */}
+                    <div style={{
+                      background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.06)',
+                      borderRadius: '8px', padding: '0.9rem 1rem'
+                    }}>
+                      <div style={{ display: 'flex', justifyContent: 'space-between', fontSize: '0.72rem', color: 'var(--color-muted)', marginBottom: '0.4rem' }}>
+                        <span>BID / ASK PRESSURE</span>
+                        <span style={{ fontWeight: 700, color: mf.bidRatio >= 50 ? '#10b981' : '#ef4444' }}>
+                          {mf.bidRatio || 50}% Bids / {mf.askRatio || 50}% Asks
+                        </span>
+                      </div>
+
+                      <div style={{ display: 'flex', height: '10px', borderRadius: '5px', overflow: 'hidden', background: '#000' }}>
+                        <div style={{ width: `${mf.bidRatio || 50}%`, background: 'linear-gradient(90deg, #059669, #10b981)', transition: 'width 0.4s' }} />
+                        <div style={{ width: `${mf.askRatio || 50}%`, background: 'linear-gradient(90deg, #dc2626, #ef4444)', transition: 'width 0.4s' }} />
+                      </div>
+                    </div>
+
+                    {/* Card 3: Imbalance & Whales Count */}
+                    <div style={{ display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '0.75rem' }}>
+                      <div style={{
+                        background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.06)',
+                        borderRadius: '8px', padding: '0.8rem', textAlign: 'center'
+                      }}>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--color-muted)', textTransform: 'uppercase' }}>Book Imbalance</div>
+                        <div style={{
+                          fontSize: '0.92rem', fontWeight: 800, marginTop: '0.25rem',
+                          color: mf.imbalanceSide === 'BID' ? '#10b981' : '#ef4444'
+                        }}>
+                          +{mf.imbalancePct || 0}% {mf.imbalanceSide || 'NEUTRAL'}
+                        </div>
+                      </div>
+
+                      <div style={{
+                        background: 'rgba(0,0,0,0.35)', border: '1px solid rgba(255,255,255,0.06)',
+                        borderRadius: '8px', padding: '0.8rem', textAlign: 'center'
+                      }}>
+                        <div style={{ fontSize: '0.68rem', color: 'var(--color-muted)', textTransform: 'uppercase' }}>Whale Activity</div>
+                        <div style={{ fontSize: '0.92rem', fontWeight: 800, color: '#a855f7', marginTop: '0.25rem' }}>
+                          🐳 {mf.whaleCount || 0} Trades
+                        </div>
+                      </div>
+                    </div>
+
+                  </div>
+                </div>
+
+                {/* Whale Alert Feed */}
+                <div style={{
+                  background: 'rgba(8, 20, 28, 0.85)', border: '1px solid rgba(168,85,247,0.3)',
+                  borderRadius: '12px', padding: '1.25rem', boxShadow: '0 8px 30px rgba(0,0,0,0.3)'
+                }}>
+                  <div style={{ display: 'flex', justifyContent: 'space-between', alignItems: 'center', marginBottom: '0.9rem' }}>
+                    <h3 style={{ margin: 0, fontSize: '0.95rem', fontWeight: 700, color: '#c084fc', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
+                      🐳 Real-Time Whale Alert Stream
+                    </h3>
+                    <span style={{ fontSize: '0.72rem', color: 'var(--color-muted)' }}>Orders ≥ $25K</span>
+                  </div>
+
+                  <div style={{ display: 'flex', flexDirection: 'column', gap: '0.45rem', maxHeight: '320px', overflowY: 'auto', paddingRight: '4px' }}>
+                    {whales.length === 0 ? (
+                      <div style={{ textAlign: 'center', padding: '2rem 1rem', color: 'var(--color-muted)', fontSize: '0.82rem' }}>
+                        ⏳ Παρακολούθηση συναλλαγών… Αναμονή για μεγάλες institutional εντολές.
+                      </div>
+                    ) : (
+                      whales.map((w, idx) => {
+                        const isBuy = w.side === 'BUY';
+                        return (
+                          <div
+                            key={w.id || idx}
+                            style={{
+                              display: 'flex', justifyContent: 'space-between', alignItems: 'center',
+                              padding: '0.55rem 0.75rem', borderRadius: '6px', fontSize: '0.78rem',
+                              fontFamily: 'var(--mono)', background: 'rgba(0,0,0,0.4)',
+                              borderLeft: `3px solid ${isBuy ? '#10b981' : '#ef4444'}`,
+                              borderTop: '1px solid rgba(255,255,255,0.04)',
+                              borderRight: '1px solid rgba(255,255,255,0.04)',
+                              borderBottom: '1px solid rgba(255,255,255,0.04)'
+                            }}
+                          >
+                            <div style={{ display: 'flex', alignItems: 'center', gap: '0.5rem' }}>
+                              <span>{isBuy ? '🟢' : '🔴'}</span>
+                              <div>
+                                <span style={{ fontWeight: 800, color: isBuy ? '#10b981' : '#ef4444' }}>
+                                  {w.side} {fD(w.usdValue)}
+                                </span>
+                                <div style={{ fontSize: '0.68rem', color: 'var(--color-muted)' }}>
+                                  {fQ(w.qty)} @ ${fP(w.price)}
+                                </div>
+                              </div>
+                            </div>
+
+                            <div style={{ textAlign: 'right' }}>
+                              {w.isLargeWhale && (
+                                <span style={{
+                                  display: 'inline-block', fontSize: '0.62rem', fontWeight: 800,
+                                  padding: '1px 5px', borderRadius: '3px', background: 'rgba(168,85,247,0.25)',
+                                  color: '#c084fc', border: '1px solid rgba(168,85,247,0.4)', marginBottom: '2px'
+                                }}>
+                                  INSTITUTIONAL
+                                </span>
+                              )}
+                              <div style={{ fontSize: '0.68rem', color: 'var(--color-muted)' }}>
+                                {timeAgo(w.time)}
+                              </div>
+                            </div>
+                          </div>
+                        );
+                      })
+                    )}
+                  </div>
+                </div>
+
+              </div>
+
+            </div>
+
+          </div>
+        );
+      })()}
 
       {l === 'capital' && (
         <div className="capital-flow-tab" style={{ padding: '1rem 0' }}>
