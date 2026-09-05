@@ -1,5 +1,6 @@
-﻿// liveFlow.js — Real-time Market Depth, CVD & Whale Flow Engine
+// liveFlow.js — Real-time Market Depth, CVD & Whale Flow Engine
 import { serverLog } from './logger.js';
+import { getWalls } from './liquidityStore.js';
 
 function normalizeSymbol(sym) {
   if (!sym) return 'BTCUSDT';
@@ -117,10 +118,11 @@ async function fetchTicker(symbol) {
 export async function getLiveFlow(rawSymbol = 'BTCUSDT') {
   const symbol = normalizeSymbol(rawSymbol);
 
-  const [depthData, trades, ticker] = await Promise.all([
+  const [depthData, trades, ticker, macroWalls] = await Promise.all([
     fetchDepth(symbol),
     fetchTrades(symbol),
-    fetchTicker(symbol)
+    fetchTicker(symbol),
+    getWalls(symbol)
   ]);
 
   const bids = (depthData.bids || []).sort((a, b) => b[0] - a[0]); // Descending
@@ -273,6 +275,7 @@ export async function getLiveFlow(rawSymbol = 'BTCUSDT') {
       tradeCount: trades.length,
       whaleCount: whaleTrades.length
     },
-    whaleTrades: whaleTrades.slice(0, 20)
+    whaleTrades: whaleTrades.slice(0, 20),
+    macroWalls: macroWalls || []
   };
 }
