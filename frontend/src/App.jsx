@@ -241,17 +241,18 @@ const TRANSLATIONS = {
 // breaks on Fly because the proxy exposes the API on the default HTTPS port.
 const API_BASE = '';
 
-// All backend timestamps are stored/returned in UTC. Format them explicitly as
-// UTC so the UI never silently shows them in local browser time (which caused a
-// SOLUSDT confusion where 20:45 UTC showed as 11:45 μ.μ. local).
+// All backend timestamps are stored/returned in UTC. We display them in Greek
+// local time (Europe/Athens = UTC+2 EET / UTC+3 EEST) so the user sees their
+// actual local time instead of UTC.
+const TZ = 'Europe/Athens';
 function fmtUTC(iso, opts = {}) {
   if (!iso) return '';
   const d = new Date(iso);
   if (isNaN(d)) return '';
-  return d.toLocaleString('en-GB', { timeZone: 'UTC', hour12: false, ...opts });
+  return d.toLocaleString('el-GR', { timeZone: TZ, hour12: false, ...opts });
 }
-const fmtUTCDate = (iso) => fmtUTC(iso, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' }) + ' UTC';
-const fmtUTCTime = (iso) => fmtUTC(iso, { hour: '2-digit', minute: '2-digit', second: '2-digit' }) + ' UTC';
+const fmtUTCDate = (iso) => fmtUTC(iso, { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+const fmtUTCTime = (iso) => fmtUTC(iso, { hour: '2-digit', minute: '2-digit', second: '2-digit' });
 
 export default function App() {
   const [e, setE] = useState(() => localStorage.getItem('trading_analyzer_lang') || 'el');
@@ -305,6 +306,8 @@ export default function App() {
   const [livePrices, setLivePrices] = useState({});
   const [livePricesTs, setLivePricesTs] = useState(0);
   const [sl, setSlLoading] = useState(false);
+  const [execPage, setExecPage] = useState(0);
+  const EXEC_PER_PAGE = 15;
 
   const fileInputRef = useRef(null);
   const canvasRef = useRef(null);
@@ -2377,6 +2380,9 @@ export default function App() {
                 <div className="panel" style={{ padding: '1rem 0' }}>
                   <h3 style={{ fontSize: '0.9rem', color: '#94a3b8', textTransform: 'uppercase', letterSpacing: '0.05em', padding: '0 1rem', marginBottom: '1rem', display: 'flex', alignItems: 'center', gap: '0.4rem' }}>
                     🎯 Recent Executions
+                    <span style={{ marginLeft: 'auto', fontWeight: 400, fontSize: '0.8rem', color: '#64748b' }}>
+                      {D.recentPerformance.trades.length} σύνολο
+                    </span>
                   </h3>
                   <div style={{ overflowX: 'auto' }}>
                     <table style={{ width: '100%', borderCollapse: 'collapse', textAlign: 'left', fontSize: '0.85rem' }}>
@@ -2391,7 +2397,7 @@ export default function App() {
                         </tr>
                       </thead>
                       <tbody>
-                        {D.recentPerformance.trades.map((trade, idx) => (
+                        {D.recentPerformance.trades.slice(execPage * EXEC_PER_PAGE, (execPage + 1) * EXEC_PER_PAGE).map((trade, idx) => (
                           <tr key={idx} style={{ borderBottom: '1px solid #1e293b44', color: '#cbd5e1' }}>
                             <th style={{ padding: '0.75rem 1rem', fontWeight: 700 }}>{trade.instrument}</th>
                             <td style={{ padding: '0.75rem 1rem' }}>
@@ -2424,6 +2430,33 @@ export default function App() {
                       </tbody>
                     </table>
                   </div>
+                  {/* Pagination controls */}
+                  {D.recentPerformance.trades.length > EXEC_PER_PAGE && (
+                    <div style={{ display: 'flex', alignItems: 'center', justifyContent: 'center', gap: '1rem', padding: '0.75rem 1rem', borderTop: '1px solid #1e293b' }}>
+                      <button
+                        onClick={() => setExecPage(p => Math.max(0, p - 1))}
+                        disabled={execPage === 0}
+                        style={{
+                          padding: '0.35rem 0.85rem', borderRadius: '6px', border: 'none', cursor: execPage === 0 ? 'not-allowed' : 'pointer',
+                          backgroundColor: execPage === 0 ? '#1e293b' : '#334155', color: execPage === 0 ? '#475569' : '#e2e8f0', fontWeight: 600, fontSize: '0.8rem'
+                        }}
+                      >← Προηγ.</button>
+                      <span style={{ color: '#94a3b8', fontSize: '0.8rem' }}>
+                        Σελίδα {execPage + 1} / {Math.ceil(D.recentPerformance.trades.length / EXEC_PER_PAGE)}
+                      </span>
+                      <button
+                        onClick={() => setExecPage(p => Math.min(Math.ceil(D.recentPerformance.trades.length / EXEC_PER_PAGE) - 1, p + 1))}
+                        disabled={(execPage + 1) * EXEC_PER_PAGE >= D.recentPerformance.trades.length}
+                        style={{
+                          padding: '0.35rem 0.85rem', borderRadius: '6px', border: 'none',
+                          cursor: (execPage + 1) * EXEC_PER_PAGE >= D.recentPerformance.trades.length ? 'not-allowed' : 'pointer',
+                          backgroundColor: (execPage + 1) * EXEC_PER_PAGE >= D.recentPerformance.trades.length ? '#1e293b' : '#334155',
+                          color: (execPage + 1) * EXEC_PER_PAGE >= D.recentPerformance.trades.length ? '#475569' : '#e2e8f0',
+                          fontWeight: 600, fontSize: '0.8rem'
+                        }}
+                      >Επόμ. →</button>
+                    </div>
+                  )}
                 </div>
               )}
 
@@ -2431,6 +2464,7 @@ export default function App() {
           )}
         </div>
       )}
+
 
       {l === 'coach' && (
         <div className="coach-tab">
