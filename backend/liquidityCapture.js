@@ -63,6 +63,25 @@ async function reconcileSupabase(symbol) {
   if (removed > 0) dbLog.info({ symbol, removed }, 'liquidityCapture reconciled stale walls');
 }
 
+async function primeSnapshot(symbol) {
+  const hosts = [
+    `https://data-api.binance.vision/api/v3/depth?symbol=${symbol}&limit=1000`,
+    `https://api.binance.com/api/v3/depth?symbol=${symbol}&limit=1000`
+  ];
+  for (const url of hosts) {
+    try {
+      const r = await fetch(url, { signal: AbortSignal.timeout(4000) });
+      if (r.ok) {
+        const snap = await r.json();
+        if (snap && Array.isArray(snap.bids) && Array.isArray(snap.asks)) {
+          return snap;
+        }
+      }
+    } catch {}
+  }
+  return null;
+}
+
 function startSymbol(symbol) {
   const st = {
     book: { bids: new Map(), asks: new Map() },
@@ -73,24 +92,23 @@ function startSymbol(symbol) {
   };
   streams[symbol] = st;
 
-  // Prime from REST snapshot (top 5000 levels)
-  fetch(`https://api.binance.com/api/v3/depth?symbol=${symbol}&limit=5000`)
-    .then(r => r.json())
-    .then(snap => {
-      if (snap.code) { dbLog.warn({ snap: snap.msg }, 'liquidityCapture REST error'); return; }
-      st.lastUpdateId = snap.lastUpdateId;
-      applyLevels(st.book.bids, snap.bids);
-      applyLevels(st.book.asks, snap.asks);
-      st.primed = true;
-      st.lastMid = midPrice(st); // for reconcile crossed-check
-      dbLog.info({ symbol, bids: st.book.bids.size, asks: st.book.asks.size }, 'liquidityCapture primed');
-      scanBook(symbol);
-      // Clear phantom walls left in Supabase from before this restart.
-      reconcileSupabase(symbol).catch(e =>
-        dbLog.warn({ err: e.message, symbol }, 'liquidityCapture reconcile failed'));
-    })
-    .catch(e => dbLog.warn({ err: e.message }, 'liquidityCapture prime failed'));
+  primeSnapshot(symbol).then(snap => {
+    if (!snap) {
+      dbLog.warn({ symbol }, 'liquidityCapture prime snapshot unavailable (geo-blocked/rate-limited)');
+      return;
+    }
+    st.lastUpdateId = snap.lastUpdateId;
+    applyLevels(st.book.bids, snap.bids);
+    applyLevels(st.book.asks, snap.asks);
+    st.primed = true;
+    st.lastMid = midPrice(st);
+    dbLog.info({ symbol, bids: st.book.bids.size, asks: st.book.asks.size }, 'liquidityCapture primed');
+    scanBook(symbol);
+    reconcileSupabase(symbol).catch(e =>
+      dbLog.warn({ err: e.message, symbol }, 'liquidityCapture reconcile failed'));
+  }).catch(e => dbLog.warn({ err: e.message, symbol }, 'liquidityCapture prime failed'));
 
+  let reconnectTimer = null;
   const ws = new WebSocket(`wss://stream.binance.com:9443/ws/${symbol.toLowerCase()}@depth@100ms`);
   ws.on('open', () => dbLog.info({ symbol }, 'liquidityCapture WS open'));
   ws.on('message', (raw) => {
@@ -107,8 +125,12 @@ function startSymbol(symbol) {
   });
   ws.on('error', e => dbLog.warn({ err: e.message, symbol }, 'liquidityCapture WS error'));
   ws.on('close', () => {
-    dbLog.warn({ symbol }, 'liquidityCapture WS closed — reconnecting in 5s');
-    setTimeout(() => startSymbol(symbol), 5000);
+    if (reconnectTimer) return;
+    dbLog.warn({ symbol }, 'liquidityCapture WS closed — reconnecting in 20s');
+    reconnectTimer = setTimeout(() => {
+      reconnectTimer = null;
+      startSymbol(symbol);
+    }, 20000);
   });
 }
 
