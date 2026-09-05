@@ -76,42 +76,74 @@ function hydrate(row) {
 
 // R-multiple (risk-normalized outcome)
 function computeRMultiple(row, samples) {
-  const entry = row.entry_price;
+  const entry = row.entry_price ?? row.entryPrice;
   const sl = row.sl;
-  const direction = row.direction;
   const tp1 = row.tp1;
+  const tp2 = row.tp2;
+  const direction = row.direction || 'LONG';
+  const status = row.status;
+  const rr = typeof row.rr === 'number' && row.rr > 0 ? row.rr : 2.05;
+
   if (entry == null) return null;
 
-  // A FAILED trade means the stop loss was hit → realized R is exactly -1.0
-  // (do NOT trust close_price here: a manual close or a scanner re-emit may have
-  // left close_price at a stale/wrong level while the SL column changed).
-  if (row.status === 'FAILED') return -1.0;
+  // 1. FAILED trade (hit Stop Loss) -> exactly -1.00R
+  if (status === 'FAILED') return -1.00;
 
-  // PARTIAL = 70% closed at TP1, SL moved to breakeven, 30% trails to TP2.
-  // Net realized R = 0.70 × (original TP1 R:R). Use origSl for the risk base
-  // (the live `sl` is now breakeven = entry, which would make risk 0).
-  if (row.status === 'PARTIAL') {
-    const origSl = row.orig_sl ?? row.origSl;
-    const rr = typeof row.rr === 'number' ? row.rr
-      : (tp1 != null && origSl != null && origSl !== entry
-        ? (direction === 'SHORT' ? (entry - tp1) / (origSl - entry) : (tp1 - entry) / (entry - origSl))
-        : (tp1 != null && sl != null && sl !== entry
-          ? (direction === 'SHORT' ? (entry - tp1) / (sl - entry) : (tp1 - entry) / (entry - sl))
-          : 0));
+  // Determine the true initial risk distance
+  let initialRisk = 0;
+  if (tp1 != null && entry != null && tp1 !== entry) {
+    initialRisk = Math.abs(tp1 - entry) / rr;
+  } else if (sl != null && sl !== entry) {
+    initialRisk = Math.abs(entry - sl);
+  }
+
+  // 2. PARTIAL trade (70% banked at TP1, SL moved to Break-Even for 30% runner)
+  if (status === 'PARTIAL') {
     return parseFloat((0.70 * rr).toFixed(2));
   }
 
-  if (sl == null) return null;
-  const risk = Math.abs(entry - sl);
-  if (risk === 0) return null;
-
-  let exit = row.close_price != null ? row.close_price : null;
-  if (exit == null && Array.isArray(samples) && samples.length > 0) {
-    exit = samples[samples.length - 1].price;
+  // 3. SUCCESS trade (completed win)
+  if (status === 'SUCCESS') {
+    let exit = row.close_price;
+    if (exit == null && Array.isArray(samples) && samples.length > 0) {
+      exit = samples[samples.length - 1].price;
+    }
+    
+    // If exit price reached TP2
+    if (exit != null && tp2 != null && Math.abs(exit - tp2) / tp2 <= 0.005) {
+      return parseFloat((0.70 * rr + 0.30 * (rr * 1.5)).toFixed(2));
+    }
+    // If exit price reached TP1 or closed after TP1 bank
+    if (exit != null && tp1 != null && (direction === 'LONG' ? exit >= tp1 * 0.998 : exit <= tp1 * 1.002)) {
+      return parseFloat(rr.toFixed(2));
+    }
+    
+    // If we have an exact exit and initial risk:
+    if (exit != null && initialRisk > 0) {
+      const realizedPnl = direction === 'SHORT' ? (entry - exit) : (exit - entry);
+      const calculatedR = realizedPnl / initialRisk;
+      if (calculatedR > 0) {
+        return parseFloat(calculatedR.toFixed(2));
+      }
+    }
+    
+    // Default SUCCESS floor is at least the 70% TP1 bank or full RR
+    return parseFloat((0.70 * rr).toFixed(2));
   }
-  if (exit == null) return null;
-  const r = (direction === 'SHORT') ? (entry - exit) / risk : (exit - entry) / risk;
-  return parseFloat(r.toFixed(2));
+
+  // 4. ACTIVE / PENDING trades (live open R)
+  if (initialRisk > 0) {
+    let currentPrice = row.close_price;
+    if (currentPrice == null && Array.isArray(samples) && samples.length > 0) {
+      currentPrice = samples[samples.length - 1].price;
+    }
+    if (currentPrice != null) {
+      const openPnl = direction === 'SHORT' ? (entry - currentPrice) : (currentPrice - entry);
+      return parseFloat((openPnl / initialRisk).toFixed(2));
+    }
+  }
+
+  return null;
 }
 
 // ── writes ───────────────────────────────────────────────────────────────────
