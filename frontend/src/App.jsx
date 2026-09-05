@@ -2007,6 +2007,8 @@ export default function App() {
 
         const macroWalls = data?.macroWalls || [];
         const maxMacroQty = Math.max(...macroWalls.map(l => l.maxQty || 0), 1);
+        const isPositiveChange = (ticker.change24h || 0) >= 0;
+        const isBullishCvd = (mf.cvd || 0) >= 0;
 
         return (
           <div className="liquidity-matrix-tab" style={{ padding: '0.5rem 0', maxWidth: '1440px', margin: '0 auto' }}>
