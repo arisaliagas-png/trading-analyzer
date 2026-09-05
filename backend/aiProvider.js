@@ -473,17 +473,7 @@ export async function askAI(systemPrompt, messages, forceProvider = null) {
   throw new Error(`Unsupported AI provider: ${provider}`);
 }
 
-async function callAI(systemPrompt, userContent, mimeType = null, imageBuffer = null, forceProvider = null, hints = null) {
-  const provider = forceProvider || process.env.AI_PROVIDER || 'gemini';
-
-  if (mimeType) {
-    const ACCEPTED = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
-    const normalized = mimeType.split(';')[0].trim().toLowerCase();
-    mimeType = ACCEPTED.includes(normalized) ? normalized : 'image/png';
-  }
-
-  let parsed;
-
+async function executeSingleProvider(provider, systemPrompt, userContent, mimeType, imageBuffer) {
   if (provider === 'gemini') {
     const apiKey = process.env.GEMINI_API_KEY;
     if (!apiKey) throw new Error('GEMINI_API_KEY is not configured.');
@@ -512,7 +502,7 @@ async function callAI(systemPrompt, userContent, mimeType = null, imageBuffer = 
 
     const data = await response.json();
     const text = data.candidates?.[0]?.content?.parts?.[0]?.text;
-    parsed = cleanAndParseJSON(text);
+    return cleanAndParseJSON(text);
 
   } else if (provider === 'anthropic') {
     const apiKey = process.env.ANTHROPIC_API_KEY;
@@ -546,7 +536,7 @@ async function callAI(systemPrompt, userContent, mimeType = null, imageBuffer = 
 
     const data = await response.json();
     const textBlock = (data.content || []).find(c => c.type === 'text');
-    parsed = cleanAndParseJSON(textBlock?.text);
+    return cleanAndParseJSON(textBlock?.text);
 
   } else if (provider === 'openrouter') {
     const apiKey = process.env.OPENROUTER_API_KEY;
@@ -580,8 +570,7 @@ async function callAI(systemPrompt, userContent, mimeType = null, imageBuffer = 
         });
         if (response.ok) {
           const data = await response.json();
-          parsed = cleanAndParseJSON(data.choices?.[0]?.message?.content || '');
-          break;
+          return cleanAndParseJSON(data.choices?.[0]?.message?.content || '');
         }
         const body = await response.text();
         if (response.status === 429 && attempt === 0) {
@@ -593,15 +582,47 @@ async function callAI(systemPrompt, userContent, mimeType = null, imageBuffer = 
         }
         break;
       }
-      if (parsed) break;
     }
-    if (!parsed) {
-      const tried = [...attempted].join(', ');
-      throw new Error(`OpenRouter API Error: free models exhausted (${tried}) after ${upstreamRetryAfter}s`);
-    }
+    const tried = [...attempted].join(', ');
+    throw new Error(`OpenRouter API Error: free models exhausted (${tried}) after ${upstreamRetryAfter}s`);
 
   } else {
     throw new Error(`Unsupported AI provider: ${provider}`);
+  }
+}
+
+async function callAI(systemPrompt, userContent, mimeType = null, imageBuffer = null, forceProvider = null, hints = null) {
+  let primaryProvider = forceProvider || process.env.AI_PROVIDER || 'gemini';
+  if (primaryProvider === 'openrouter' && !process.env.OPENROUTER_API_KEY) {
+    primaryProvider = process.env.GEMINI_API_KEY ? 'gemini' : process.env.ANTHROPIC_API_KEY ? 'anthropic' : 'openrouter';
+  }
+
+  if (mimeType) {
+    const ACCEPTED = ['image/jpeg', 'image/png', 'image/gif', 'image/webp'];
+    const normalized = mimeType.split(';')[0].trim().toLowerCase();
+    mimeType = ACCEPTED.includes(normalized) ? normalized : 'image/png';
+  }
+
+  // Build provider fallback chain
+  const chain = [primaryProvider];
+  if (process.env.GEMINI_API_KEY && !chain.includes('gemini')) chain.push('gemini');
+  if (process.env.ANTHROPIC_API_KEY && !chain.includes('anthropic')) chain.push('anthropic');
+
+  let parsed = null;
+  let lastErr = null;
+
+  for (const prov of chain) {
+    try {
+      parsed = await executeSingleProvider(prov, systemPrompt, userContent, mimeType, imageBuffer);
+      if (parsed) break;
+    } catch (err) {
+      lastErr = err;
+      console.warn(`[callAI] Provider ${prov} failed: ${err.message}. Trying next fallback...`);
+    }
+  }
+
+  if (!parsed) {
+    throw lastErr || new Error('All AI providers exhausted');
   }
 
   return validateAIResponse(parsed, hints);
@@ -732,11 +753,11 @@ Follow system instructions and output the structured JSON result.
   `;
 
   if (hints === 'POST_MORTEM_OVERRIDE') {
-    return callAI(TEXT_JSON_SYSTEM_PROMPT, userPrompt, null, null, forceProvider, 'POST_MORTEM_OVERRIDE');
+    return callAI(TEXT_JSON_SYSTEM_PROMPT, userPrompt, null, null, actualProvider, 'POST_MORTEM_OVERRIDE');
   }
 
   if (hints === 'SCANNER_VERIFY') {
-    return callAI(TEXT_JSON_SYSTEM_PROMPT, userPrompt, null, null, forceProvider, 'SCANNER_VERIFY');
+    return callAI(TEXT_JSON_SYSTEM_PROMPT, userPrompt, null, null, actualProvider, 'SCANNER_VERIFY');
   }
 
   return callAI(systemInstructionsWithLessons, userPrompt, mimeType, imageBuffer, actualProvider, hints || 'ANALYSIS');
