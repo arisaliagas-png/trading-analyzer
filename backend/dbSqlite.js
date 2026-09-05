@@ -774,6 +774,7 @@ export function migrateFromJSON() {
   const SIGNALS_PATH = path.join(DATA_DIR, 'signals.json');
   const HISTORY_PATH = path.join(DATA_DIR, 'history.json');
   const LESSONS_PATH = path.join(DATA_DIR, 'lessons.json');
+  const SEED_PATH    = path.join(DATA_DIR, 'seed_backup.json');
 
   const existingCount = db.prepare('SELECT COUNT(*) as c FROM trades').get().c;
   if (existingCount > 0) {
@@ -782,6 +783,76 @@ export function migrateFromJSON() {
   }
 
   let migrated = 0;
+
+  // Import seed_backup.json if available
+  if (fs.existsSync(SEED_PATH)) {
+    try {
+      const seed = JSON.parse(fs.readFileSync(SEED_PATH, 'utf8'));
+      if (Array.isArray(seed.trades)) {
+        const insertSeed = db.transaction((trades) => {
+          for (const t of trades) {
+            try {
+              stmts.insertTrade.run({
+                id:                t.id,
+                instrument:        t.instrument || t.symbol,
+                timeframe:         t.timeframe ?? null,
+                direction:         t.direction ?? null,
+                entry_low:         t.entry?.low ?? t.entryLow ?? null,
+                entry_high:        t.entry?.high ?? t.entryHigh ?? null,
+                entry_price:       t.entry?.price ?? t.entryPrice ?? null,
+                sl:                t.sl ?? null,
+                tp1:               t.tp1 ?? t.targets?.[0] ?? null,
+                tp2:               t.tp2 ?? t.targets?.[1] ?? null,
+                rr:                t.rr ?? null,
+                status:            t.status ?? 'PENDING',
+                grade:             t.grade ?? null,
+                confidence_pct:    t.confidencePct ?? t.pct ?? null,
+                reasoning:         t.reasoning ?? null,
+                indicator_snapshot: JSON.stringify(t.indicatorSnapshot || t.indicators || []),
+                strategy:          t.strategy ?? null,
+                is_new:            t.isNew ? 1 : 0,
+                created_at:        t.createdAt ?? t.timestamp ?? new Date().toISOString()
+              });
+              if (t.closedAt) {
+                stmts.updateTradeClosed.run({
+                  status: t.status,
+                  close_price: t.closePrice ?? null,
+                  closed_at: t.closedAt,
+                  id: t.id
+                });
+              }
+              if (t.enteredZone) {
+                stmts.markEnteredZone.run({ id: t.id });
+              }
+              migrated++;
+            } catch {}
+          }
+        });
+        insertSeed(seed.trades);
+      }
+
+      if (Array.isArray(seed.lessons)) {
+        const insertLessons = db.transaction((lessons) => {
+          for (const l of lessons) {
+            try {
+              stmts.insertLesson.run({
+                trade_id:       l.tradeId ?? l.trade_id ?? 'seed',
+                instrument:     l.instrument ?? 'UNKNOWN',
+                direction:      l.direction ?? 'LONG',
+                failure_reason: l.failureReason ?? l.failure_reason ?? '',
+                lesson:         l.lesson ?? '',
+                created_at:     l.createdAt ?? l.created_at ?? new Date().toISOString()
+              });
+            } catch {}
+          }
+        });
+        insertLessons(seed.lessons);
+      }
+      dbLog.info({ count: migrated }, 'Successfully loaded trades & lessons from seed_backup.json');
+    } catch (e) {
+      dbLog.error({ err: e.message }, 'Failed to import seed_backup.json');
+    }
+  }
 
   // Import history.json
   if (fs.existsSync(HISTORY_PATH)) {

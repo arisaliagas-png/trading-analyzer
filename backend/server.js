@@ -63,6 +63,7 @@ async function binanceFetch(url, retries = 2) {
 }
 
 const app = express();
+app.set('trust proxy', 1);
 const port = process.env.PORT || 5000;
 
 // ─────────────────────────────────────────────
@@ -802,14 +803,6 @@ app.get('/api/book-history', async (req, res) => {
   }
 });
 
-app.get('*', (req, res) => {
-  res.sendFile(path.join(frontendDist, 'index.html'), (err) => {
-    if (err) {
-      res.status(404).send('Not Found');
-    }
-  });
-});
-
 // Upload endpoint: capture script pushes its JSON to the server (Fly)
 app.post('/api/book-history/upload', express.json(), async (req, res) => {
   const symbol = (req.query.symbol || req.body.symbol || 'BTCUSDT').toUpperCase();
@@ -824,6 +817,18 @@ app.post('/api/book-history/upload', express.json(), async (req, res) => {
   } catch (e) {
     res.status(500).json({ ok: false, error: e.message });
   }
+});
+
+app.get('*', (req, res) => {
+  const indexDist = path.join(frontendDist, 'index.html');
+  const indexPublic = path.join(dockerPublic, 'index.html');
+  if (fs.existsSync(indexDist)) {
+    return res.sendFile(indexDist);
+  }
+  if (fs.existsSync(indexPublic)) {
+    return res.sendFile(indexPublic);
+  }
+  res.status(404).send('Not Found');
 });
 
 app.listen(port, '0.0.0.0', async () => {

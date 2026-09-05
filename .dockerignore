@@ -9,9 +9,6 @@ frontend/node_modules
 .env.*
 backend/.env
 backend/.env.*
-data
-backend/data
-*.db
 dist
 backend/dist
 *.log
