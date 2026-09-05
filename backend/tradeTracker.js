@@ -62,7 +62,10 @@ async function fetchBinance(symbols) {
     const clean = sym.replace(/[\/\.\-]/g, '').replace(/P$/i, ''); // strip separators; trailing P = perpetual suffix only
     try {
       // Use klines to get recent low/high (wick-aware SL/TP detection)
-      const res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${clean}&interval=1m&limit=3`);
+      let res = await fetch(`https://data-api.binance.vision/api/v3/klines?symbol=${clean}&interval=1m&limit=3`);
+      if (!res.ok) {
+        res = await fetch(`https://api.binance.com/api/v3/klines?symbol=${clean}&interval=1m&limit=3`);
+      }
       if (res.ok) {
         const data = await res.json();
         if (Array.isArray(data) && data.length) {

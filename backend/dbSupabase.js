@@ -34,7 +34,8 @@ async function client() {
 }
 
 export const PENDING_EXPIRY_HOURS = 24;
-export const ACTIVE_EXPIRY_HOURS = 96;
+export const ACTIVE_EXPIRY_HOURS = 36;
+export const NEEDS_CONFIRMATION_EXPIRY_HOURS = 12;
 
 // ── hydration (DB row → JS object) ───────────────────────────────────────────
 function hydrate(row) {
@@ -392,6 +393,18 @@ export async function expireStaleActive() {
     dbLog.info({ expired: ids.length, olderThan: cutoff }, 'Expired stale ACTIVE trades (Supabase)');
   }
   return expiring.map(hydrate);
+}
+
+export async function expireStaleNeedsConfirmation() {
+  const cutoff = new Date(Date.now() - NEEDS_CONFIRMATION_EXPIRY_HOURS * 60 * 60 * 1000).toISOString();
+  const { data, error } = await (await client()).from('trades').select('id').eq('status', 'PENDING').ilike('reasoning', '%[NEEDS_CONFIRMATION]%').lt('created_at', cutoff);
+  if (error) return 0;
+  const ids = (data || []).map(r => r.id);
+  if (ids.length) {
+    await (await client()).from('trades').delete().in('id', ids);
+    dbLog.info({ expired: ids.length, olderThan: cutoff }, 'Expired stale NEEDS_CONFIRMATION PENDING setups (Supabase)');
+  }
+  return ids.length;
 }
 
 // No-op for Supabase mode (migration is done via SQL script, not JSON files)

@@ -25,6 +25,26 @@ function normalizeSymbol(sym) {
   return sym.toUpperCase().replace(/[\/\.\-P]/g, '').trim();
 }
 
+// Helper to fetch Klines from Binance with geo-block resilience
+async function fetchBinanceKlines(symbol, interval, limit) {
+  const hosts = [
+    'https://data-api.binance.vision/api/v3/klines',
+    'https://api.binance.com/api/v3/klines',
+    'https://fapi.binance.com/fapi/v1/klines'
+  ];
+  for (const host of hosts) {
+    try {
+      const url = `${host}?symbol=${symbol}&interval=${interval}&limit=${limit}`;
+      const res = await fetch(url);
+      if (res.ok) {
+        const data = await res.json();
+        if (Array.isArray(data) && data.length > 0) return data;
+      }
+    } catch { /* try next host */ }
+  }
+  return null;
+}
+
 /**
  * Fetch historical candles and calculate technical indicators.
  * Returns a clean object containing indicator readings.
@@ -35,10 +55,8 @@ export async function getLiveIndicators(symbol, timeframe, whaleWalls = [], abso
 
   try {
     // We request 200 candles to have enough data for EMA200
-    const url = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${interval}&limit=250`;
-    const res = await fetch(url);
-    if (!res.ok) throw new Error(`Binance API returned status ${res.status}`);
-    const data = await res.json();
+    const data = await fetchBinanceKlines(binanceSymbol, interval, 250);
+    if (!data) throw new Error(`Failed to fetch Binance klines for ${binanceSymbol}`);
 
     // Map to OHLCV arrays
     const opens = [];
@@ -124,10 +142,8 @@ export async function getLiveIndicators(symbol, timeframe, whaleWalls = [], abso
     const fetchEma200 = async (tf) => {
       try {
         const tfInterval = normalizeTimeframe(tf);
-        const tfUrl = `https://api.binance.com/api/v3/klines?symbol=${binanceSymbol}&interval=${tfInterval}&limit=210`;
-        const tfRes = await fetch(tfUrl);
-        if (!tfRes.ok) return null;
-        const tfData = await tfRes.json();
+        const tfData = await fetchBinanceKlines(binanceSymbol, tfInterval, 210);
+        if (!tfData || !Array.isArray(tfData)) return null;
         const tfCloses = tfData.map(c => parseFloat(c[4]));
         if (tfCloses.length < 200) return null;
         const tfEmaArr = EMA.calculate({ period: 200, values: tfCloses });
