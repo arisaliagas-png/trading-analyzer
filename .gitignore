@@ -13,10 +13,10 @@ frontend/dist/
 dist/
 
 # Databases (local runtime data)
-*.db
 *.sqlite
 backend/*.db
-backend/data/
+backend/data/*.db
+!backend/data/seed_backup.json
 
 # Logs
 *.log
