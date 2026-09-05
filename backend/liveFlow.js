@@ -112,17 +112,31 @@ async function fetchTicker(symbol) {
   return null;
 }
 
+const flowCache = {}; // symbol -> { data, expiresAt }
+
 /**
- * Computes live money flow, depth mountains & whale alerts
+ * Computes live money flow, depth mountains & whale alerts (with 2s TTL caching)
  */
 export async function getLiveFlow(rawSymbol = 'BTCUSDT') {
   const symbol = normalizeSymbol(rawSymbol);
+  const now = Date.now();
+
+  // Return fresh cache if within 2.5s
+  if (flowCache[symbol] && flowCache[symbol].expiresAt > now) {
+    return flowCache[symbol].data;
+  }
+
+  const withTimeout = (promise, fallback, ms = 3500) =>
+    Promise.race([
+      promise,
+      new Promise(resolve => setTimeout(() => resolve(fallback), ms))
+    ]);
 
   const [depthData, trades, ticker, macroWalls] = await Promise.all([
-    fetchDepth(symbol),
-    fetchTrades(symbol),
-    fetchTicker(symbol),
-    getWalls(symbol)
+    withTimeout(fetchDepth(symbol), { bids: [], asks: [] }),
+    withTimeout(fetchTrades(symbol), []),
+    withTimeout(fetchTicker(symbol), null),
+    withTimeout(getWalls(symbol), [])
   ]);
 
   const bids = (depthData.bids || []).sort((a, b) => b[0] - a[0]); // Descending
@@ -278,4 +292,11 @@ export async function getLiveFlow(rawSymbol = 'BTCUSDT') {
     whaleTrades: whaleTrades.slice(0, 20),
     macroWalls: macroWalls || []
   };
+
+  flowCache[symbol] = {
+    data: result,
+    expiresAt: now + 2500 // 2.5s cache
+  };
+
+  return result;
 }

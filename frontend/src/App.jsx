@@ -732,7 +732,7 @@ export default function App() {
   const fetchLiquidity = async (sym = rl, showLoading = false) => {
     if (showLoading) setLiquidityLoading(true);
     try {
-      const r = await fetch(`${API_BASE}/api/live-flow?symbol=${sym}`);
+      const r = await fetch(`${API_BASE}/api/live-flow?symbol=${sym}`, { signal: AbortSignal.timeout(4500) });
       if (r.ok) {
         const d = await r.json();
         setLiquidity(d);
@@ -740,7 +740,7 @@ export default function App() {
     } catch (e) {
       console.warn('Live flow fetch error:', e);
     } finally {
-      if (showLoading) setLiquidityLoading(false);
+      setLiquidityLoading(false);
     }
   };
 
@@ -927,11 +927,13 @@ export default function App() {
   const fetchAnalytics = async () => {
     setBaLoading(true);
     try {
-      const res = await fetch(`${API_BASE}/api/analytics`);
-      const data = await res.json();
-      setDAnalytics(data);
-    } catch {
-      // error
+      const res = await fetch(`${API_BASE}/api/analytics`, { signal: AbortSignal.timeout(5000) });
+      if (res.ok) {
+        const data = await res.json();
+        setDAnalytics(data);
+      }
+    } catch (e) {
+      console.warn('Analytics fetch error:', e);
     } finally {
       setBaLoading(false);
     }

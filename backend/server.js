@@ -130,6 +130,8 @@ app.use('/api/candles',        generalLimiterSoft);
 app.use('/api/prices',         generalLimiterSoft);
 app.use('/api/live-flow',      generalLimiterSoft);
 app.use('/api/book-history',   generalLimiterSoft);
+app.use('/api/analytics',      generalLimiterSoft);
+app.use('/api/capital-flow',   generalLimiterSoft);
 app.use('/api/',               generalLimiter);
 app.use(express.json());
 
